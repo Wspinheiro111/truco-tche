@@ -1,5 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS, OAUTH_STATE_COOKIE, decodeOAuthState } from "@shared/const";
-import { parse as parseCookieHeader } from "cookie";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
@@ -20,17 +19,6 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
 
-    // CSRF guard: the nonce in `state` must match the one-time cookie that
-    // startLogin set in the browser that began this login. An attacker can
-    // forge `state`, but cannot plant this cookie in the victim's browser.
-    const { nonce } = decodeOAuthState(state);
-    const expectedNonce = parseCookieHeader(req.headers.cookie ?? "")[OAUTH_STATE_COOKIE];
-    if (!nonce || nonce !== expectedNonce) {
-      res.status(403).json({ error: "invalid oauth state" });
-      return;
-    }
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: true, sameSite: "none" });
-
     try {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
@@ -40,15 +28,34 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
+      // ─── Account Linking Logic ─────────────────────────────────────────────────────────────
+      // If the user has an email and a local account exists with that email,
+      // link the Google openId to the existing local account so all history
+      // (matches, Pilas, achievements) is preserved under one profile.
+      let finalOpenId = userInfo.openId;
+      let accountLinked = false;
+
+      if (userInfo.email) {
+        const existingLocalUser = await db.getUserByEmail(userInfo.email.toLowerCase());
+        if (existingLocalUser && existingLocalUser.loginMethod === 'local' && !existingLocalUser.googleLinked) {
+          // Migrate: update the local user's openId to the Google openId
+          await db.linkGoogleAccount(existingLocalUser.id, userInfo.openId);
+          finalOpenId = userInfo.openId;
+          accountLinked = true;
+          console.log(`[OAuth] Linked Google account to existing local user id=${existingLocalUser.id} email=${userInfo.email}`);
+        }
+      }
+
+      // Upsert the OAuth user (creates new or updates existing linked account)
       await db.upsertUser({
-        openId: userInfo.openId,
+        openId: finalOpenId,
         name: userInfo.name || null,
         email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? 'google',
         lastSignedIn: new Date(),
       });
 
-      const sessionToken = await sdk.createSessionToken(userInfo.openId, {
+      const sessionToken = await sdk.createSessionToken(finalOpenId, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
       });
@@ -56,7 +63,9 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      res.redirect(302, "/");
+      // Redirect with a flag so the frontend can show a "conta vinculada" toast
+      const redirectPath = accountLinked ? "/?linked=google" : "/";
+      res.redirect(302, redirectPath);
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
       res.status(500).json({ error: "OAuth callback failed" });

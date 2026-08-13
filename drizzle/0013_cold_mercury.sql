@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `googleLinked` boolean DEFAULT false NOT NULL;

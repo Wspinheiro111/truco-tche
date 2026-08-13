@@ -61,7 +61,9 @@ export function serveStatic(app: Express) {
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // Exclude /api/socketio so Socket.IO handles its own path
+  app.use("*", (req, res, next) => {
+    if (req.originalUrl.startsWith("/api/socketio")) return next();
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

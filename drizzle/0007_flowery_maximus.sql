@@ -1,0 +1,1 @@
+ALTER TABLE `sponsors` ADD `dailyImpressionGoal` int DEFAULT 0 NOT NULL;
