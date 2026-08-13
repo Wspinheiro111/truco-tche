@@ -1876,6 +1876,16 @@ body, .scr {
       <div class="mc-sub">Enfrente todos os gaudérios · Prêmio especial</div>
     </div>
   </div>
+  <section id="home-active-rooms" aria-label="Salas abertas agora" style="margin-top:.8rem;background:linear-gradient(135deg,rgba(64,36,18,.93),rgba(28,47,73,.95));border:1px solid rgba(200,168,75,.45);border-radius:12px;padding:.7rem .75rem;box-shadow:0 5px 18px rgba(0,0,0,.18)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin-bottom:.45rem">
+      <div>
+        <div style="font-family:Georgia,serif;font-size:.78rem;font-weight:700;color:#f5d77c">Salas abertas agora</div>
+        <div id="home-active-rooms-count" style="font-size:.58rem;color:rgba(255,255,255,.55);margin-top:.08rem">Entre em um desafio disponível</div>
+      </div>
+      <button type="button" onclick="openOnlineLobby()" style="background:transparent;border:1px solid rgba(245,215,124,.45);border-radius:7px;color:#f5d77c;padding:.3rem .48rem;font-size:.6rem;font-weight:800;cursor:pointer">Ver todas</button>
+    </div>
+    <div id="home-active-rooms-list"></div>
+  </section>
   <div class="sec" id="ai-section" style="display:none">
     <div class="sec-lbl">Escolha o adversário</div>
     <div class="char-row" id="char-row"></div>
@@ -1910,8 +1920,23 @@ body, .scr {
     <span id="lobby-online-count" style="font-size:.6rem;color:rgba(100,240,100,.8);font-weight:700;opacity:0;transition:opacity .4s"></span>
   </div>
 
+  <section id="active-rooms-panel" aria-label="Salas abertas" style="display:none;width:min(680px,calc(100% - 2rem));margin:.8rem auto 0;background:rgba(9,21,42,.82);border:1px solid rgba(200,168,75,.42);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.22);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.72rem .85rem;background:linear-gradient(90deg,rgba(200,168,75,.16),rgba(52,133,211,.08));border-bottom:1px solid rgba(255,255,255,.08)">
+      <div>
+        <div style="font-family:Georgia,serif;font-size:.86rem;font-weight:700;color:#f5d77c">Salas abertas</div>
+        <div id="active-rooms-count" style="font-size:.62rem;color:rgba(255,255,255,.48);margin-top:.08rem">Buscando desafios disponíveis...</div>
+      </div>
+      <button type="button" onclick="refreshActiveRooms()" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.17);color:rgba(255,255,255,.82);border-radius:8px;padding:.36rem .58rem;font-size:.68rem;font-weight:700;cursor:pointer">↻ Atualizar</button>
+    </div>
+    <div id="active-rooms-list" style="max-height:190px;overflow:auto;padding:.55rem"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.65rem .85rem;border-top:1px solid rgba(255,255,255,.08)">
+      <span style="font-size:.62rem;color:rgba(255,255,255,.45)">Escolha uma sala ou abra a sua.</span>
+      <button type="button" onclick="socketCreateRoom()" style="background:linear-gradient(135deg,#cfa82b,#f2cf5b);border:none;color:#2a1900;border-radius:8px;padding:.42rem .68rem;font-size:.68rem;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(207,168,43,.22)">＋ Criar sala</button>
+    </div>
+  </section>
+
   <!-- Área central de espera (estilo vs IA) -->
-  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem 1rem;gap:1.2rem">
+  <div id="online-waiting-area" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1.5rem 1rem;gap:1.2rem">
 
     <!-- Avatares dos jogadores -->
     <div style="display:flex;align-items:center;gap:1.8rem">
@@ -3545,6 +3570,7 @@ function renderHome(){
   document.getElementById('pb-coins').textContent='🪙'+TT_P.coins;
   const xc=TT_P.xp-xpFor(TT_P.lv), xn=xpFor(TT_P.lv+1)-xpFor(TT_P.lv);
   document.getElementById('pb-xp').style.width=Math.min(100,xc/xn*100)+'%';
+  refreshHomeActiveRooms();
 }
 
 const STYLE_TAGS={agressivo:'tag-agr',blefador:'tag-blf',conservador:'tag-con',malandro:'tag-mal',gauchesco:'tag-gau',online:'tag-gau'};
@@ -7098,6 +7124,7 @@ async function renderOnlineHistory() {
       ctaReg.style.display = 'block';
       ctaLog.style.display = 'none';
     }
+    setTimeout(refreshHomeActiveRooms, 0);
   }
 
   // ─── History ───
@@ -7362,6 +7389,12 @@ function ensureSocket() {
     if (sioGameActive && reason !== 'io client disconnect') {
       attemptReconnect();
     }
+  });
+
+  sio.on('rooms_updated', (data) => {
+    var panel = document.getElementById('active-rooms-panel');
+    if (panel && panel.style.display !== 'none') renderActiveRooms(data?.rooms || []);
+    renderHomeActiveRooms(data?.rooms || []);
   });
 
   // ── Game Events ──
@@ -7775,6 +7808,7 @@ function openOnlineLobby() {
   }
   ensureSocket();
   show('online-lobby');
+  setOnlineLobbyMode('browse');
   // Atualizar nome do jogador na tela de espera
   var owNameMe = document.getElementById('ow-name-me');
   if (owNameMe) owNameMe.textContent = sioMyName || (window.localUser && window.localUser.name) || 'Você';
@@ -7793,17 +7827,11 @@ function openOnlineLobby() {
   if (owShareArea) owShareArea.style.display = 'none';
   var owTimerFill = document.getElementById('ow-timer-fill');
   if (owTimerFill) { owTimerFill.style.width = '100%'; }
-  // Aguardar socket conectar antes de criar sala
-  if (sio && sioConnected) {
-    if (!sioRoom) socketCreateRoom();
-  } else {
-    setTimeout(() => {
-      if (!sioRoom) socketCreateRoom();
-    }, 1200);
-  }
+  refreshActiveRooms();
 }
 
 function leaveOnlineLobby() {
+  stopActiveRoomsRefresh();
   if (sioInQueue && sio) {
     sio.emit('cancel_matchmaking');
     sioInQueue = false;
@@ -7930,6 +7958,139 @@ function startRoomCountdown(durationMs) {
 }
 
 // ── Room Management ──
+var _activeRoomsRefreshTimer = null;
+
+function stopActiveRoomsRefresh() {
+  if (_activeRoomsRefreshTimer) { clearInterval(_activeRoomsRefreshTimer); _activeRoomsRefreshTimer = null; }
+}
+
+function setOnlineLobbyMode(mode) {
+  var panel = document.getElementById('active-rooms-panel');
+  var waiting = document.getElementById('online-waiting-area');
+  var browsing = mode === 'browse';
+  if (panel) panel.style.display = browsing ? 'block' : 'none';
+  if (waiting) waiting.style.display = browsing ? 'none' : 'flex';
+  if (browsing && !_activeRoomsRefreshTimer) _activeRoomsRefreshTimer = setInterval(refreshActiveRooms, 15000);
+  if (!browsing) stopActiveRoomsRefresh();
+}
+
+function escapeRoomText(value) {
+  return String(value == null ? '' : value).replace(/[&<>'"]/g, function(char) {
+    return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[char];
+  });
+}
+
+function renderActiveRooms(rooms) {
+  var list = document.getElementById('active-rooms-list');
+  var count = document.getElementById('active-rooms-count');
+  if (!list || !count) return;
+  var validRooms = Array.isArray(rooms) ? rooms : [];
+  count.textContent = validRooms.length ? validRooms.length + (validRooms.length === 1 ? ' sala aguardando jogador' : ' salas aguardando jogadores') : 'Nenhuma sala aberta agora';
+  if (!validRooms.length) {
+    list.innerHTML = '<div style="padding:1rem .55rem;text-align:center;color:rgba(255,255,255,.48);font-size:.72rem">Ainda não há desafio aberto. Crie uma sala e convide alguém para jogar.</div>';
+    return;
+  }
+  list.innerHTML = validRooms.map(function(room) {
+    var host = escapeRoomText(room.hostName || 'Jogador');
+    var code = String(room.code || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    var viewers = Number(room.spectators || 0);
+    return '<div style="display:flex;align-items:center;gap:.65rem;padding:.58rem;border-radius:9px;background:rgba(255,255,255,.045);margin-bottom:.4rem;border:1px solid rgba(255,255,255,.06)">' +
+      '<div style="width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(200,168,75,.18);border:1px solid rgba(200,168,75,.28);font-size:.9rem">🤠</div>' +
+      '<div style="min-width:0;flex:1"><div style="color:rgba(255,255,255,.9);font-size:.72rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + host + '</div>' +
+      '<div style="color:rgba(255,255,255,.42);font-size:.58rem;margin-top:.1rem">1v1 · código ' + escapeRoomText(code) + (viewers ? ' · ' + viewers + ' assistindo' : '') + '</div></div>' +
+      '<button type="button" onclick="joinActiveRoom(\'' + code + '\')" style="background:#3675ba;border:1px solid rgba(157,208,255,.35);color:#fff;border-radius:7px;padding:.34rem .55rem;font-size:.64rem;font-weight:800;cursor:pointer">Entrar</button></div>';
+  }).join('');
+}
+
+function refreshActiveRooms() {
+  if (!sio || !sioConnected || !sioAuthenticated) {
+    waitForAuth(function() { refreshActiveRooms(); });
+    return;
+  }
+  sio.emit('list_rooms', {}, function(response) {
+    var rooms = response && response.rooms ? response.rooms : [];
+    renderActiveRooms(rooms);
+    renderHomeActiveRooms(rooms);
+  });
+}
+
+function renderHomeActiveRooms(rooms) {
+  var list = document.getElementById('home-active-rooms-list');
+  var count = document.getElementById('home-active-rooms-count');
+  if (!list || !count) return;
+  var user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
+  var validRooms = Array.isArray(rooms) ? rooms : [];
+  if (!user) {
+    count.textContent = validRooms.length ? validRooms.length + ' desafios disponíveis' : 'Faça login para encontrar adversários';
+    list.innerHTML = '<div style="font-size:.64rem;color:rgba(255,255,255,.5);padding:.22rem 0">Entre na sua conta para ver e aceitar desafios em tempo real.</div>';
+    return;
+  }
+  count.textContent = validRooms.length ? validRooms.length + (validRooms.length === 1 ? ' desafio aguardando' : ' desafios aguardando') : 'Nenhum desafio aberto neste momento';
+  if (!validRooms.length) {
+    list.innerHTML = '<div style="font-size:.64rem;color:rgba(255,255,255,.5);padding:.22rem 0">Seja o primeiro a abrir uma mesa e chame a gauchada.</div>';
+    return;
+  }
+  list.innerHTML = validRooms.slice(0, 2).map(function(room, index) {
+    var host = escapeRoomText(room.hostName || 'Jogador');
+    var code = String(room.code || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    return '<div style="display:flex;align-items:center;gap:.45rem;padding:.38rem .1rem' + (index ? ';border-top:1px solid rgba(255,255,255,.08)' : '') + '">' +
+      '<span style="font-size:.76rem">🤠</span><span style="flex:1;min-width:0;color:rgba(255,255,255,.84);font-size:.65rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + host + ' <span style="font-weight:400;color:rgba(255,255,255,.42)">· ' + escapeRoomText(code) + '</span></span>' +
+      '<button type="button" onclick="joinHomeActiveRoom(\'' + code + '\')" style="background:#3675ba;border:1px solid rgba(157,208,255,.35);color:#fff;border-radius:6px;padding:.25rem .4rem;font-size:.58rem;font-weight:800;cursor:pointer">Entrar</button></div>';
+  }).join('');
+}
+
+function refreshHomeActiveRooms() {
+  var user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
+  if (!user) { renderHomeActiveRooms([]); return; }
+  ensureSocket();
+  if (!sio || !sioConnected || !sioAuthenticated) {
+    waitForAuth(function() { refreshHomeActiveRooms(); });
+    return;
+  }
+  sio.emit('list_rooms', {}, function(response) {
+    renderHomeActiveRooms(response && response.rooms ? response.rooms : []);
+  });
+}
+
+function joinHomeActiveRoom(code) {
+  var user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
+  if (!user) { showLoginRequiredModal(); return; }
+  ensureSocket();
+  show('online-lobby');
+  setOnlineLobbyMode('browse');
+  joinActiveRoom(code);
+}
+
+function finishRoomJoin(code, res) {
+  sioRoom = code;
+  sioRole = 'p2';
+  sioOpponentName = res.hostName;
+  setOnlineLobbyMode('waiting');
+  toast('Entrando na sala de ' + res.hostName + '...', 'info');
+  var lobbyChat = document.getElementById('sio-lobby-chat');
+  if (lobbyChat) lobbyChat.style.display = 'block';
+  document.getElementById('sio-room-display').style.display = 'block';
+  document.getElementById('sio-rcode').textContent = code;
+  document.getElementById('sio-room-status').innerHTML = '<span style="color:var(--green);font-weight:700">✅ Sala encontrada! Aguardando início...</span>';
+  var rpRow = document.getElementById('sio-rp-row');
+  if (rpRow) rpRow.innerHTML = '<div class="rp rdy">' + escapeRoomText(res.hostName) + '</div><div class="rp rdy">' + escapeRoomText(sioMyName) + '</div>';
+  var jf = document.getElementById('sio-join-form');
+  if (jf) jf.style.display = 'none';
+}
+
+function joinActiveRoom(code) {
+  if (!sio || !sioConnected || !sioAuthenticated) {
+    toast('Conectando...', 'info');
+    waitForAuth(function() { joinActiveRoom(code); });
+    return;
+  }
+  var normalizedCode = String(code).toUpperCase();
+  sio.emit('join_room', { code: normalizedCode }, function(res) {
+    if (res.error) { toast(res.error, 'warn'); refreshActiveRooms(); return; }
+    finishRoomJoin(normalizedCode, res);
+  });
+}
+
 function socketCreateRoom() {
   if (!sio || !sioConnected || !sioAuthenticated) {
     toast('Conectando...', 'info');
@@ -7938,6 +8099,7 @@ function socketCreateRoom() {
   }
   sio.emit('create_room', { mode: '1v1' }, (res) => {
     if (res.error) { toast(res.error, 'warn'); return; }
+    setOnlineLobbyMode('waiting');
     sioRoom = res.code;
     sioRole = 'p1';
     // Atualizar nova tela de espera
@@ -7963,25 +8125,7 @@ function socketJoinRoom() {
   }
   const code = document.getElementById('sio-join-code').value.trim().toUpperCase();
   if (code.length !== 4) { toast('Código deve ter 4 caracteres', 'warn'); return; }
-  sio.emit('join_room', { code }, (res) => {
-    if (res.error) { toast(res.error, 'warn'); return; }
-    sioRoom = code;
-    sioRole = 'p2';
-    sioOpponentName = res.hostName;
-    toast(`Entrando na sala de ${res.hostName}...`, 'info');
-    // Mostrar chat do lobby para o guest também
-    var lobbyChat = document.getElementById('sio-lobby-chat');
-    if (lobbyChat) lobbyChat.style.display = 'block';
-    // Mostrar painel da sala
-    document.getElementById('sio-room-display').style.display = 'block';
-    document.getElementById('sio-rcode').textContent = code;
-    document.getElementById('sio-room-status').innerHTML = `<span style="color:var(--green);font-weight:700">✅ Sala encontrada! Aguardando início...</span>`;
-    var rpRow = document.getElementById('sio-rp-row');
-    if (rpRow) rpRow.innerHTML = `<div class="rp rdy">${res.hostName}</div><div class="rp rdy">${sioMyName}</div>`;
-    // Esconder o form de entrada
-    var jf = document.getElementById('sio-join-form');
-    if (jf) jf.style.display = 'none';
-  });
+  joinActiveRoom(code);
 }
 
 // ── Matchmaking ──

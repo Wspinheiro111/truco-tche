@@ -72,6 +72,26 @@ const ROOM_WAIT_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes waiting for opponent
 const TOURNAMENT_REGISTER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes max in registering state
 const TURN_TIMEOUT_MS = ENGINE_TURN_TIMEOUT_MS; // shared 30-second AFK limit
 
+export type WaitingRoomSummary = {
+  code: string;
+  hostName: string;
+  mode: string;
+  spectators: number;
+};
+
+export function getWaitingRoomSummaries(
+  roomCollection: Iterable<Pick<RoomData, "code" | "hostName" | "mode" | "state" | "guestSocket" | "spectators">>,
+): WaitingRoomSummary[] {
+  return Array.from(roomCollection)
+    .filter(room => room.state === null && !room.guestSocket)
+    .map(room => ({
+      code: room.code,
+      hostName: room.hostName,
+      mode: room.mode,
+      spectators: room.spectators.size,
+    }));
+}
+
 // Map of tournamentId -> registration timeout timer
 const tournamentRegisterTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
@@ -181,6 +201,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
     io.emit("online_stats", { totalOnline, inQueue, inGame: playersInGame });
   }
 
+  function broadcastWaitingRooms() {
+    io.emit("rooms_updated", { rooms: getWaitingRoomSummaries(rooms.values()) });
+  }
+
   io.on("connection", (socket: Socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
     // Send current stats to new connection
@@ -288,6 +312,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           rooms.delete(code);
           socketToRoom.delete(r.hostSocket);
           userToRoom.delete(r.hostUserId);
+          broadcastWaitingRooms();
           console.log(`[Socket] Room ${code} timed out (no opponent joined)`);
         }
       }, ROOM_WAIT_TIMEOUT_MS);
@@ -307,6 +332,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
 
       cb?.({ success: true, code });
+      broadcastWaitingRooms();
       console.log(`[Socket] Room ${code} created by ${user.userName}`);
     });
 
@@ -346,6 +372,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
 
       cb?.({ success: true, hostName: room.hostName, showChat: true });
+      broadcastWaitingRooms();
       console.log(`[Socket] ${user.userName} joined room ${code}`);
       console.log(`[Socket] Room ${code} now has 2 players - starting game...`);
 
@@ -457,7 +484,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Cancel Waiting Room ──
-    socket.on("cancel_room", (cb?: (res: { ok: boolean }) => void) => {
+    socket.on("cancel_room", (dataOrCallback?: unknown | ((res: { ok: boolean }) => void), callback?: (res: { ok: boolean }) => void) => {
+      const cb = typeof dataOrCallback === "function" ? dataOrCallback : callback;
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ ok: false });
       const roomCode = socketToRoom.get(socket.id);
@@ -477,6 +505,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         .where(eq(onlineRooms.code, roomCode)))
         .catch(() => {});
       console.log(`[Socket] Room ${roomCode} cancelled by host ${user.userName}`);
+      broadcastWaitingRooms();
       cb?.({ ok: true });
     });
 
@@ -764,15 +793,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
     // ── List active rooms ──
     socket.on("list_rooms", (_data, cb) => {
-      const activeRooms = Array.from(rooms.values())
-        .filter(r => r.state === null && !r.guestSocket) // waiting rooms
-        .map(r => ({
-          code: r.code,
-          hostName: r.hostName,
-          mode: r.mode,
-          spectators: r.spectators.size,
-        }));
-      cb?.({ rooms: activeRooms });
+      cb?.({ rooms: getWaitingRoomSummaries(rooms.values()) });
     });
     // ── List live rooms (partidas em andamento para espectadores) ──
     socket.on("list_live_rooms", (_data, cb) => {
@@ -1091,6 +1112,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           if (!room.state && room.hostSocket === socket.id) {
             rooms.delete(roomCode);
             userToRoom.delete(room.hostUserId);
+            broadcastWaitingRooms();
             db().then(d => d.update(onlineRooms)
               .set({ status: "abandoned" })
               .where(eq(onlineRooms.code, roomCode)))
