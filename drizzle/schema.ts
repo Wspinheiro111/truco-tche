@@ -185,6 +185,10 @@ export const onlineRooms = mysqlTable("onlineRooms", {
   guestName: varchar("guestName", { length: 100 }),
   /** Game mode */
   mode: varchar("mode", { length: 10 }).notNull().default("1v1"),
+  /** Stake level chosen when the room is created */
+  stakeTier: varchar("stakeTier", { length: 16 }).notNull().default("amistoso"),
+  /** Region selected by the host to help players find nearby opponents */
+  region: varchar("region", { length: 8 }).notNull().default("BR"),
   /** Room status */
   status: mysqlEnum("status", ["waiting", "playing", "finished", "abandoned"]).notNull().default("waiting"),
   /** Online tournament ID if part of a tournament */
@@ -195,6 +199,7 @@ export const onlineRooms = mysqlTable("onlineRooms", {
   codeIdx: index("room_code_idx").on(table.code),
   statusIdx: index("room_status_idx").on(table.status),
   hostIdx: index("room_host_idx").on(table.hostId),
+  filtersIdx: index("room_filters_idx").on(table.mode, table.stakeTier, table.region),
 }));
 
 export type OnlineRoom = typeof onlineRooms.$inferSelect;

@@ -17,3 +17,7 @@
 - [x] Adicionar painel de salas ativas na interface principal com atualização em tempo real.
 - [x] Permitir entrada direta em uma sala aguardando jogador a partir do painel.
 - [x] Validar visualmente e por Socket.IO a listagem, a atualização em tempo real e a entrada em salas ativas.
+- [x] Adicionar metadados de modo, nível de aposta e região às salas online.
+- [x] Persistir e transmitir os metadados de filtro na listagem de salas ativas.
+- [x] Criar controles de filtro e criação configurável de sala na tela inicial e no lobby.
+- [x] Validar filtragem, entrada direta e build da nova experiência de salas.

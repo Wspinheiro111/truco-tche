@@ -34,6 +34,8 @@ interface RoomData {
   hostName: string;
   guestName: string | null;
   mode: string;
+  stakeTier: string;
+  region: string;
   state: GameState | null;
   playerMap: { p1: string; p2: string }; // socket ids
   userMap: { p1: number; p2: number };   // user ids
@@ -76,18 +78,56 @@ export type WaitingRoomSummary = {
   code: string;
   hostName: string;
   mode: string;
+  stakeTier: string;
+  region: string;
   spectators: number;
 };
 
+export type RoomFilters = {
+  mode?: string;
+  stakeTier?: string;
+  region?: string;
+};
+
+const ROOM_MODES = new Set(["1v1", "desafio", "torneio"]);
+const STAKE_TIERS = new Set(["amistoso", "baixo", "medio", "alto"]);
+const ROOM_REGIONS = new Set(["BR", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "40"]);
+
+function normalizeRoomValue(value: unknown, allowed: Set<string>, fallback: string): string {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+  const matched = Array.from(allowed).find(item => item.toUpperCase() === normalized);
+  return matched ?? fallback;
+}
+
+export function normalizeRoomPreferences(input: RoomFilters = {}) {
+  return {
+    mode: normalizeRoomValue(input.mode, ROOM_MODES, "1v1"),
+    stakeTier: normalizeRoomValue(input.stakeTier, STAKE_TIERS, "amistoso"),
+    region: normalizeRoomValue(input.region, ROOM_REGIONS, "40"),
+  };
+}
+
 export function getWaitingRoomSummaries(
-  roomCollection: Iterable<Pick<RoomData, "code" | "hostName" | "mode" | "state" | "guestSocket" | "spectators">>,
+  roomCollection: Iterable<Pick<RoomData, "code" | "hostName" | "mode" | "stakeTier" | "region" | "state" | "guestSocket" | "spectators">>,
+  filters: RoomFilters = {},
 ): WaitingRoomSummary[] {
+  const normalizedFilters = normalizeRoomPreferences({
+    mode: filters.mode === "all" ? undefined : filters.mode,
+    stakeTier: filters.stakeTier === "all" ? undefined : filters.stakeTier,
+    region: filters.region === "all" ? undefined : filters.region,
+  });
+  const modeFilter = filters.mode && filters.mode !== "all" ? normalizedFilters.mode : null;
+  const stakeFilter = filters.stakeTier && filters.stakeTier !== "all" ? normalizedFilters.stakeTier : null;
+  const regionFilter = filters.region && filters.region !== "all" ? normalizedFilters.region : null;
   return Array.from(roomCollection)
     .filter(room => room.state === null && !room.guestSocket)
+    .filter(room => (!modeFilter || room.mode === modeFilter) && (!stakeFilter || room.stakeTier === stakeFilter) && (!regionFilter || room.region === regionFilter))
     .map(room => ({
       code: room.code,
       hostName: room.hostName,
       mode: room.mode,
+      stakeTier: room.stakeTier,
+      region: room.region,
       spectators: room.spectators.size,
     }));
 }
@@ -272,9 +312,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Create Room ──
-    socket.on("create_room", async (data: { mode?: string; tournamentId?: number }, cb) => {
+    socket.on("create_room", async (data: { mode?: string; stakeTier?: string; region?: string; tournamentId?: number }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
+      const preferences = normalizeRoomPreferences(data);
 
       const code = genCode();
       const room: RoomData = {
@@ -285,7 +326,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
         guestUserId: null,
         hostName: user.userName,
         guestName: null,
-        mode: data.mode || "1v1",
+        mode: preferences.mode,
+        stakeTier: preferences.stakeTier,
+        region: preferences.region,
         state: null,
         playerMap: { p1: socket.id, p2: "" },
         userMap: { p1: user.userId, p2: 0 },
@@ -324,7 +367,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
             code,
             hostId: user.userId,
             hostName: user.userName,
-            mode: data.mode || "1v1",
+            mode: preferences.mode,
+            stakeTier: preferences.stakeTier,
+            region: preferences.region,
             status: "waiting",
             tournamentId: data.tournamentId || null,
           });
@@ -419,6 +464,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           hostName: opponent.userName,
           guestName: user.userName,
           mode,
+          stakeTier: "amistoso",
+          region: "BR",
           state: null,
           playerMap: { p1: opponent.socketId, p2: socket.id },
           userMap: { p1: opponent.userId, p2: user.userId },
@@ -450,6 +497,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           guestId: user.userId,
           guestName: user.userName,
           mode,
+          stakeTier: "amistoso",
+          region: "BR",
           status: "playing",
         })).catch(e => console.error("[Socket] DB error:", e));
 
@@ -792,8 +841,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── List active rooms ──
-    socket.on("list_rooms", (_data, cb) => {
-      cb?.({ rooms: getWaitingRoomSummaries(rooms.values()) });
+    socket.on("list_rooms", (filters: RoomFilters = {}, cb) => {
+      cb?.({ rooms: getWaitingRoomSummaries(rooms.values(), filters) });
     });
     // ── List live rooms (partidas em andamento para espectadores) ──
     socket.on("list_live_rooms", (_data, cb) => {

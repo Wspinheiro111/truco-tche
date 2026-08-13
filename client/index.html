@@ -1884,6 +1884,11 @@ body, .scr {
       </div>
       <button type="button" onclick="openOnlineLobby()" style="background:transparent;border:1px solid rgba(245,215,124,.45);border-radius:7px;color:#f5d77c;padding:.3rem .48rem;font-size:.6rem;font-weight:800;cursor:pointer">Ver todas</button>
     </div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.35rem;margin-bottom:.52rem">
+      <select data-room-filter="mode" onchange="setRoomFilter(this.dataset.roomFilter,this.value)" aria-label="Filtrar por modo" style="min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;color:#fff;padding:.32rem;font-size:.58rem"><option value="all">Todos modos</option><option value="1v1">1 contra 1</option><option value="desafio">Desafio</option><option value="torneio">Torneio</option></select>
+      <select data-room-filter="stakeTier" onchange="setRoomFilter(this.dataset.roomFilter,this.value)" aria-label="Filtrar por nível de aposta virtual" style="min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;color:#fff;padding:.32rem;font-size:.58rem"><option value="all">Toda aposta</option><option value="amistoso">Amistoso</option><option value="baixo">Baixa</option><option value="medio">Média</option><option value="alto">Alta</option></select>
+      <select data-room-filter="region" onchange="setRoomFilter(this.dataset.roomFilter,this.value)" aria-label="Filtrar por região" style="min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;color:#fff;padding:.32rem;font-size:.58rem"><option value="all">Toda região</option></select>
+    </div>
     <div id="home-active-rooms-list"></div>
   </section>
   <div class="sec" id="ai-section" style="display:none">
@@ -1928,9 +1933,18 @@ body, .scr {
       </div>
       <button type="button" onclick="refreshActiveRooms()" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.17);color:rgba(255,255,255,.82);border-radius:8px;padding:.36rem .58rem;font-size:.68rem;font-weight:700;cursor:pointer">↻ Atualizar</button>
     </div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.4rem;padding:.55rem .85rem;background:rgba(255,255,255,.025);border-bottom:1px solid rgba(255,255,255,.08)">
+      <select data-room-filter="mode" onchange="setRoomFilter(this.dataset.roomFilter,this.value)" aria-label="Filtrar por modo" style="min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;padding:.38rem;font-size:.62rem"><option value="all">Todos modos</option><option value="1v1">1 contra 1</option><option value="desafio">Desafio</option><option value="torneio">Torneio</option></select>
+      <select data-room-filter="stakeTier" onchange="setRoomFilter(this.dataset.roomFilter,this.value)" aria-label="Filtrar por nível de aposta virtual" style="min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;padding:.38rem;font-size:.62rem"><option value="all">Toda aposta</option><option value="amistoso">Amistoso</option><option value="baixo">Baixa</option><option value="medio">Média</option><option value="alto">Alta</option></select>
+      <select data-room-filter="region" onchange="setRoomFilter(this.dataset.roomFilter,this.value)" aria-label="Filtrar por região" style="min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;padding:.38rem;font-size:.62rem"><option value="all">Toda região</option></select>
+    </div>
     <div id="active-rooms-list" style="max-height:190px;overflow:auto;padding:.55rem"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.65rem .85rem;border-top:1px solid rgba(255,255,255,.08)">
-      <span style="font-size:.62rem;color:rgba(255,255,255,.45)">Escolha uma sala ou abra a sua.</span>
+      <div style="display:flex;gap:.32rem;min-width:0;flex:1">
+        <select id="room-create-mode" aria-label="Modo da nova sala" style="min-width:0;flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;padding:.34rem;font-size:.6rem"><option value="1v1">1 contra 1</option><option value="desafio">Desafio</option><option value="torneio">Torneio</option></select>
+        <select id="room-create-stake" aria-label="Aposta virtual da nova sala" style="min-width:0;flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;padding:.34rem;font-size:.6rem"><option value="amistoso">Amistoso</option><option value="baixo">Baixa</option><option value="medio">Média</option><option value="alto">Alta</option></select>
+        <select id="room-create-region" aria-label="Região da nova sala" style="min-width:0;flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;padding:.34rem;font-size:.6rem"></select>
+      </div>
       <button type="button" onclick="socketCreateRoom()" style="background:linear-gradient(135deg,#cfa82b,#f2cf5b);border:none;color:#2a1900;border-radius:8px;padding:.42rem .68rem;font-size:.68rem;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(207,168,43,.22)">＋ Criar sala</button>
     </div>
   </section>
@@ -7807,6 +7821,7 @@ function openOnlineLobby() {
     return;
   }
   ensureSocket();
+  initializeRoomFilterControls();
   show('online-lobby');
   setOnlineLobbyMode('browse');
   // Atualizar nome do jogador na tela de espera
@@ -7980,11 +7995,71 @@ function escapeRoomText(value) {
   });
 }
 
+var activeRoomFilters = { mode: 'all', stakeTier: 'all', region: 'all' };
+var ROOM_REGION_OPTIONS = Array.from({ length: 30 }, function(_, index) { return String(index + 1); }).concat(['40']);
+
+function roomModeLabel(value) {
+  return ({ '1v1': '1 contra 1', desafio: 'Desafio', torneio: 'Torneio' })[value] || '1 contra 1';
+}
+
+function roomStakeLabel(value) {
+  return ({ amistoso: 'Amistoso', baixo: 'Baixa', medio: 'Média', alto: 'Alta' })[value] || 'Amistoso';
+}
+
+function roomRegionLabel(value) {
+  return value === 'BR' ? 'Nacional' : 'Região ' + (value || '40');
+}
+
+function initializeRoomFilterControls() {
+  document.querySelectorAll('select[data-room-filter="region"]').forEach(function(select) {
+    if (select.options.length > 1) return;
+    ROOM_REGION_OPTIONS.forEach(function(region) {
+      var option = document.createElement('option');
+      option.value = region;
+      option.textContent = 'Região ' + region;
+      select.appendChild(option);
+    });
+  });
+  var createRegion = document.getElementById('room-create-region');
+  if (createRegion && !createRegion.options.length) {
+    ROOM_REGION_OPTIONS.forEach(function(region) {
+      var option = document.createElement('option');
+      option.value = region;
+      option.textContent = 'Região ' + region;
+      createRegion.appendChild(option);
+    });
+    createRegion.value = '40';
+  }
+  document.querySelectorAll('[data-room-filter]').forEach(function(control) {
+    control.value = activeRoomFilters[control.dataset.roomFilter] || 'all';
+  });
+}
+
+function setRoomFilter(key, value) {
+  if (!Object.prototype.hasOwnProperty.call(activeRoomFilters, key)) return;
+  activeRoomFilters[key] = value || 'all';
+  initializeRoomFilterControls();
+  refreshActiveRooms();
+  refreshHomeActiveRooms();
+}
+
+function getActiveRoomFilters() {
+  return { mode: activeRoomFilters.mode, stakeTier: activeRoomFilters.stakeTier, region: activeRoomFilters.region };
+}
+
+function filterRoomsLocally(rooms) {
+  return (Array.isArray(rooms) ? rooms : []).filter(function(room) {
+    return (activeRoomFilters.mode === 'all' || room.mode === activeRoomFilters.mode)
+      && (activeRoomFilters.stakeTier === 'all' || room.stakeTier === activeRoomFilters.stakeTier)
+      && (activeRoomFilters.region === 'all' || room.region === activeRoomFilters.region);
+  });
+}
+
 function renderActiveRooms(rooms) {
   var list = document.getElementById('active-rooms-list');
   var count = document.getElementById('active-rooms-count');
   if (!list || !count) return;
-  var validRooms = Array.isArray(rooms) ? rooms : [];
+  var validRooms = filterRoomsLocally(rooms);
   count.textContent = validRooms.length ? validRooms.length + (validRooms.length === 1 ? ' sala aguardando jogador' : ' salas aguardando jogadores') : 'Nenhuma sala aberta agora';
   if (!validRooms.length) {
     list.innerHTML = '<div style="padding:1rem .55rem;text-align:center;color:rgba(255,255,255,.48);font-size:.72rem">Ainda não há desafio aberto. Crie uma sala e convide alguém para jogar.</div>';
@@ -7997,17 +8072,18 @@ function renderActiveRooms(rooms) {
     return '<div style="display:flex;align-items:center;gap:.65rem;padding:.58rem;border-radius:9px;background:rgba(255,255,255,.045);margin-bottom:.4rem;border:1px solid rgba(255,255,255,.06)">' +
       '<div style="width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(200,168,75,.18);border:1px solid rgba(200,168,75,.28);font-size:.9rem">🤠</div>' +
       '<div style="min-width:0;flex:1"><div style="color:rgba(255,255,255,.9);font-size:.72rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + host + '</div>' +
-      '<div style="color:rgba(255,255,255,.42);font-size:.58rem;margin-top:.1rem">1v1 · código ' + escapeRoomText(code) + (viewers ? ' · ' + viewers + ' assistindo' : '') + '</div></div>' +
+      '<div style="color:rgba(255,255,255,.42);font-size:.58rem;margin-top:.1rem">' + escapeRoomText(roomModeLabel(room.mode)) + ' · ' + escapeRoomText(roomStakeLabel(room.stakeTier)) + ' · ' + escapeRoomText(roomRegionLabel(room.region)) + ' · código ' + escapeRoomText(code) + (viewers ? ' · ' + viewers + ' assistindo' : '') + '</div></div>' +
       '<button type="button" onclick="joinActiveRoom(\'' + code + '\')" style="background:#3675ba;border:1px solid rgba(157,208,255,.35);color:#fff;border-radius:7px;padding:.34rem .55rem;font-size:.64rem;font-weight:800;cursor:pointer">Entrar</button></div>';
   }).join('');
 }
 
 function refreshActiveRooms() {
+  initializeRoomFilterControls();
   if (!sio || !sioConnected || !sioAuthenticated) {
     waitForAuth(function() { refreshActiveRooms(); });
     return;
   }
-  sio.emit('list_rooms', {}, function(response) {
+  sio.emit('list_rooms', getActiveRoomFilters(), function(response) {
     var rooms = response && response.rooms ? response.rooms : [];
     renderActiveRooms(rooms);
     renderHomeActiveRooms(rooms);
@@ -8019,7 +8095,7 @@ function renderHomeActiveRooms(rooms) {
   var count = document.getElementById('home-active-rooms-count');
   if (!list || !count) return;
   var user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
-  var validRooms = Array.isArray(rooms) ? rooms : [];
+  var validRooms = filterRoomsLocally(rooms);
   if (!user) {
     count.textContent = validRooms.length ? validRooms.length + ' desafios disponíveis' : 'Faça login para encontrar adversários';
     list.innerHTML = '<div style="font-size:.64rem;color:rgba(255,255,255,.5);padding:.22rem 0">Entre na sua conta para ver e aceitar desafios em tempo real.</div>';
@@ -8034,12 +8110,13 @@ function renderHomeActiveRooms(rooms) {
     var host = escapeRoomText(room.hostName || 'Jogador');
     var code = String(room.code || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
     return '<div style="display:flex;align-items:center;gap:.45rem;padding:.38rem .1rem' + (index ? ';border-top:1px solid rgba(255,255,255,.08)' : '') + '">' +
-      '<span style="font-size:.76rem">🤠</span><span style="flex:1;min-width:0;color:rgba(255,255,255,.84);font-size:.65rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + host + ' <span style="font-weight:400;color:rgba(255,255,255,.42)">· ' + escapeRoomText(code) + '</span></span>' +
+      '<span style="font-size:.76rem">🤠</span><span style="flex:1;min-width:0;color:rgba(255,255,255,.84);font-size:.65rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + host + ' <span style="font-weight:400;color:rgba(255,255,255,.42)">· ' + escapeRoomText(roomModeLabel(room.mode)) + ' · ' + escapeRoomText(roomStakeLabel(room.stakeTier)) + ' · ' + escapeRoomText(roomRegionLabel(room.region)) + '</span></span>' +
       '<button type="button" onclick="joinHomeActiveRoom(\'' + code + '\')" style="background:#3675ba;border:1px solid rgba(157,208,255,.35);color:#fff;border-radius:6px;padding:.25rem .4rem;font-size:.58rem;font-weight:800;cursor:pointer">Entrar</button></div>';
   }).join('');
 }
 
 function refreshHomeActiveRooms() {
+  initializeRoomFilterControls();
   var user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
   if (!user) { renderHomeActiveRooms([]); return; }
   ensureSocket();
@@ -8047,7 +8124,7 @@ function refreshHomeActiveRooms() {
     waitForAuth(function() { refreshHomeActiveRooms(); });
     return;
   }
-  sio.emit('list_rooms', {}, function(response) {
+  sio.emit('list_rooms', getActiveRoomFilters(), function(response) {
     renderHomeActiveRooms(response && response.rooms ? response.rooms : []);
   });
 }
@@ -8092,12 +8169,20 @@ function joinActiveRoom(code) {
 }
 
 function socketCreateRoom() {
+  initializeRoomFilterControls();
   if (!sio || !sioConnected || !sioAuthenticated) {
     toast('Conectando...', 'info');
     waitForAuth(function() { socketCreateRoom(); });
     return;
   }
-  sio.emit('create_room', { mode: '1v1' }, (res) => {
+  var createMode = document.getElementById('room-create-mode');
+  var createStake = document.getElementById('room-create-stake');
+  var createRegion = document.getElementById('room-create-region');
+  sio.emit('create_room', {
+    mode: createMode ? createMode.value : '1v1',
+    stakeTier: createStake ? createStake.value : 'amistoso',
+    region: createRegion ? createRegion.value : '40',
+  }, (res) => {
     if (res.error) { toast(res.error, 'warn'); return; }
     setOnlineLobbyMode('waiting');
     sioRoom = res.code;
