@@ -21,3 +21,7 @@
 - [x] Persistir e transmitir os metadados de filtro na listagem de salas ativas.
 - [x] Criar controles de filtro e criação configurável de sala na tela inicial e no lobby.
 - [x] Validar filtragem, entrada direta e build da nova experiência de salas.
+- [x] Corrigir a inicialização defensiva dos controles de filtro de salas na tela inicial.
+- [x] Validar que a página inicial carrega sem erro de JavaScript após a correção.
+- [x] Corrigir a inicialização antecipada de `sioReconnectAttempts` no cliente Socket.IO.
+- [x] Corrigir a inicialização antecipada de `_sioAuthCallbacks` no cliente Socket.IO.

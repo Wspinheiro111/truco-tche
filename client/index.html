@@ -7280,9 +7280,9 @@ async function renderOnlineHistory() {
 // (variáveis já declaradas globalmente no primeiro script para evitar ReferenceError)
 // sio, sioConnected, sioRoom, sioRole, sioOpponentName, sioMyName, sioInQueue, sioGameState, sioGameActive
 // Reconnection state
-let sioReconnectAttempts = 0;
-let sioReconnectTimer = null;
-let sioOpponentGracePeriod = null; // countdown timer for opponent walkover
+var sioReconnectAttempts = 0;
+var sioReconnectTimer = null;
+var sioOpponentGracePeriod = null; // countdown timer for opponent walkover
 const SIO_MAX_RECONNECT_ATTEMPTS = 8;
 
 // ── Connection status banner ──
@@ -7342,7 +7342,7 @@ function tryRejoinGame() {
 
 // ── Socket.io Connection ──
 var sioAuthenticated = false;
-var _sioAuthCallbacks = []; // callbacks waiting for auth
+var _sioAuthCallbacks = Array.isArray(_sioAuthCallbacks) ? _sioAuthCallbacks : []; // callbacks waiting for auth
 function _sioDoAuth() {
   sioAuthenticated = false;
   const user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
@@ -7352,13 +7352,14 @@ function _sioDoAuth() {
       sioAuthenticated = true;
       console.log('[SIO] Auth confirmed for', sioMyName);
       // Flush pending callbacks
-      var cbs = _sioAuthCallbacks.splice(0);
+      var cbs = Array.isArray(_sioAuthCallbacks) ? _sioAuthCallbacks.splice(0) : [];
       cbs.forEach(function(fn) { fn(); });
     });
   }
 }
 function waitForAuth(cb) {
   if (sio && sioConnected && sioAuthenticated) { cb(); return; }
+  if (!Array.isArray(_sioAuthCallbacks)) _sioAuthCallbacks = [];
   _sioAuthCallbacks.push(cb);
   if (!sio || !sioConnected) ensureSocket();
 }
@@ -8010,7 +8011,13 @@ function roomRegionLabel(value) {
   return value === 'BR' ? 'Nacional' : 'Região ' + (value || '40');
 }
 
+function ensureRoomFilterState() {
+  if (!activeRoomFilters || typeof activeRoomFilters !== 'object') activeRoomFilters = { mode: 'all', stakeTier: 'all', region: 'all' };
+  if (!Array.isArray(ROOM_REGION_OPTIONS)) ROOM_REGION_OPTIONS = Array.from({ length: 30 }, function(_, index) { return String(index + 1); }).concat(['40']);
+}
+
 function initializeRoomFilterControls() {
+  ensureRoomFilterState();
   document.querySelectorAll('select[data-room-filter="region"]').forEach(function(select) {
     if (select.options.length > 1) return;
     ROOM_REGION_OPTIONS.forEach(function(region) {
@@ -8031,11 +8038,13 @@ function initializeRoomFilterControls() {
     createRegion.value = '40';
   }
   document.querySelectorAll('[data-room-filter]').forEach(function(control) {
-    control.value = activeRoomFilters[control.dataset.roomFilter] || 'all';
+    var filterName = control.getAttribute('data-room-filter');
+    if (filterName && Object.prototype.hasOwnProperty.call(activeRoomFilters, filterName)) control.value = activeRoomFilters[filterName] || 'all';
   });
 }
 
 function setRoomFilter(key, value) {
+  ensureRoomFilterState();
   if (!Object.prototype.hasOwnProperty.call(activeRoomFilters, key)) return;
   activeRoomFilters[key] = value || 'all';
   initializeRoomFilterControls();
@@ -8044,10 +8053,12 @@ function setRoomFilter(key, value) {
 }
 
 function getActiveRoomFilters() {
+  ensureRoomFilterState();
   return { mode: activeRoomFilters.mode, stakeTier: activeRoomFilters.stakeTier, region: activeRoomFilters.region };
 }
 
 function filterRoomsLocally(rooms) {
+  ensureRoomFilterState();
   return (Array.isArray(rooms) ? rooms : []).filter(function(room) {
     return (activeRoomFilters.mode === 'all' || room.mode === activeRoomFilters.mode)
       && (activeRoomFilters.stakeTier === 'all' || room.stakeTier === activeRoomFilters.stakeTier)
