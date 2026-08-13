@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getWaitingRoomSummaries, normalizeRoomPreferences } from "./socketServer";
+import { getTotalOnlinePlayers, getWaitingRoomSummaries, normalizeRoomPreferences } from "./socketServer";
 
 describe("getWaitingRoomSummaries", () => {
   it("expõe apenas salas que aguardam um segundo jogador", () => {
@@ -22,5 +22,9 @@ describe("getWaitingRoomSummaries", () => {
 
     expect(getWaitingRoomSummaries(rooms, { mode: "desafio", stakeTier: "alto", region: "2" })).toMatchObject([{ code: "QWER" }]);
     expect(normalizeRoomPreferences({ mode: "invalido", stakeTier: "ALTO", region: "40" })).toEqual({ mode: "1v1", stakeTier: "alto", region: "40" });
+  });
+
+  it("conta jogadores autenticados únicos, não conexões duplicadas", () => {
+    expect(getTotalOnlinePlayers([{ userId: 7 }, { userId: 7 }, { userId: 18 }])).toBe(2);
   });
 });

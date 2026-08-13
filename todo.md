@@ -25,3 +25,6 @@
 - [x] Validar que a página inicial carrega sem erro de JavaScript após a correção.
 - [x] Corrigir a inicialização antecipada de `sioReconnectAttempts` no cliente Socket.IO.
 - [x] Corrigir a inicialização antecipada de `_sioAuthCallbacks` no cliente Socket.IO.
+- [x] Manter a configuração Mercado Pago postergada, conforme solicitado pelo usuário.
+- [x] Emitir e exibir o total global de jogadores online no cabeçalho em tempo real.
+- [x] Validar o contador de jogadores online com múltiplos clientes Socket.IO.

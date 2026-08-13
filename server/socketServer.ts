@@ -69,6 +69,10 @@ let playersInGame = 0;
 // the same queued player to be matched twice. The lock serialises the critical section.
 let matchmakingLocked = false;
 
+export function getTotalOnlinePlayers(usersBySocket: Iterable<{ userId: number }>): number {
+  return new Set(Array.from(usersBySocket, user => user.userId)).size;
+}
+
 const RECONNECT_GRACE_MS = 30_000; // 30 seconds grace period
 const ROOM_WAIT_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes waiting for opponent
 const TOURNAMENT_REGISTER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes max in registering state
@@ -234,7 +238,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
   // ── Helper: broadcast online stats ──
   function broadcastOnlineStats() {
-    const totalOnline = io.sockets.sockets.size;
+    const totalOnline = getTotalOnlinePlayers(socketToUser.values());
     const inQueue = matchmakingQueue.length;
     // Use the atomic counter instead of rooms.size × 2, which was inaccurate:
     // it counted waiting rooms, rooms with only 1 player, and tournament BYE slots.
@@ -249,7 +253,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     console.log(`[Socket] Connected: ${socket.id}`);
     // Send current stats to new connection
     setTimeout(() => {
-      const totalOnline = io.sockets.sockets.size;
+      const totalOnline = getTotalOnlinePlayers(socketToUser.values());
       const inQueue = matchmakingQueue.length;
       socket.emit("online_stats", { totalOnline, inQueue, inGame: playersInGame });
     }, 500);

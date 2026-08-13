@@ -1834,6 +1834,7 @@ body, .scr {
   <div class="hero">
     <h1>Truco Tchê</h1>
     <p>O Desafio do Pago Virtual</p>
+    <div id="header-online-count" role="status" aria-live="polite" style="display:inline-flex;align-items:center;gap:.28rem;margin-top:.12rem;padding:.22rem .55rem;border:1px solid rgba(110,240,110,.34);border-radius:999px;background:rgba(39,125,70,.22);color:#a8f6b3;font-size:.62rem;font-weight:800;letter-spacing:.02em">● 0 jogadores online</div>
     <div class="profile-bar">
       <span class="pb-name" id="pb-name">Peão</span>
       <span class="pb-stat">Lv<strong id="pb-lv">1</strong></span>
@@ -7533,17 +7534,21 @@ function ensureSocket() {
 
    // ── Online Stats ──
   sio.on('online_stats', (data) => {
+    const totalOnline = Number(data && data.totalOnline) || 0;
+    const onlineLabel = totalOnline + ' jogador' + (totalOnline === 1 ? '' : 'es') + ' online';
+    const headerCount = document.getElementById('header-online-count');
+    if (headerCount) headerCount.textContent = '● ' + onlineLabel;
     // Badge no card da home
     const badge = document.getElementById('online-badge');
     if (badge) {
-      badge.textContent = data.totalOnline + ' online';
-      badge.style.display = data.totalOnline > 0 ? 'block' : 'none';
+      badge.textContent = totalOnline + ' online';
+      badge.style.display = totalOnline > 0 ? 'block' : 'none';
     }
     // Contador no lobby
     const lobbyCount = document.getElementById('lobby-online-count');
     if (lobbyCount) {
-      lobbyCount.textContent = '● ' + data.totalOnline + ' online';
-      lobbyCount.style.opacity = data.totalOnline > 0 ? '1' : '0';
+      lobbyCount.textContent = '● ' + totalOnline + ' online';
+      lobbyCount.style.opacity = totalOnline > 0 ? '1' : '0';
     }
     // Contador na aba de fila
     const queueOnline = document.getElementById('sio-queue-online');
