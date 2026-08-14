@@ -44,3 +44,8 @@
 - [x] Atualizar dependências vulneráveis prioritárias em checkpoint dedicado e reexecutar a auditoria de pacotes.
 - [x] Salvar checkpoint dedicado da atualização de dependências e da rodada final de auditoria de pacotes.
 - [x] Manter Autoscale por decisão do usuário, documentando o risco de salas e timers em memória para revisão futura.
+- [x] Criar consulta protegida de perfil com estatísticas de vitórias e partidas recentes.
+- [x] Implementar página de perfil com resumo de desempenho e histórico de partidas.
+- [x] Cobrir consulta de perfil com testes e validar os estados de histórico vazio, carregamento e erro.
+- [x] Adicionar teste do dashboard para usuário sem partidas registradas.
+- [x] Validar explicitamente na interface os estados de carregamento, histórico vazio e erro do perfil.

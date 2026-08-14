@@ -2964,7 +2964,7 @@ function applyRankingFilter() {
   renderRanking();
 }
 
-function renderProfile(){
+function renderLegacyProfile(){
   TT_P.lv=lvlOf(TT_P.xp);
   const xc=TT_P.xp-xpFor(TT_P.lv),xn=xpFor(TT_P.lv+1)-xpFor(TT_P.lv);
   const wr=TT_P.games?Math.round(TT_P.wins/TT_P.games*100):0;
@@ -3024,6 +3024,80 @@ function renderProfile(){
     </div>`;
   // Carrega status de vinculação Google de forma assíncrona
   loadGoogleLinkStatus();
+}
+
+function escapeProfileText(value) {
+  return String(value == null ? '' : value).replace(/[&<>'"]/g, function(char) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char];
+  });
+}
+
+function formatProfileDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Data indisponível' : date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatProfileDuration(seconds) {
+  if (!seconds || seconds < 60) return seconds ? `${seconds}s` : '—';
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}m ${remainder}s` : `${minutes} min`;
+}
+
+function renderProfileMatch(match) {
+  const won = match.result === 'win';
+  const accent = won ? 'var(--green)' : 'var(--red)';
+  const result = won ? 'Vitória' : 'Derrota';
+  const source = match.source === 'online' ? 'Partida online' : 'Desafio contra IA';
+  const walkover = match.isWalkover ? ' · W.O.' : '';
+  return `<article style="display:flex;align-items:center;gap:.65rem;padding:.7rem 0;border-bottom:1px solid var(--bdr)">
+    <div style="width:2.2rem;height:2.2rem;display:grid;place-items:center;border-radius:50%;background:var(--surf2);font-size:1.1rem">${escapeProfileText(match.opponentAvatar)}</div>
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;align-items:center;gap:.4rem;min-width:0"><strong style="font-size:.83rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeProfileText(match.opponent)}</strong><span style="font-size:.58rem;color:var(--txt3);white-space:nowrap">${source}${walkover}</span></div>
+      <div style="font-size:.67rem;color:var(--txt3);margin-top:.12rem">${formatProfileDate(match.playedAt)} · ${formatProfileDuration(match.durationSeconds)}</div>
+    </div>
+    <div style="text-align:right"><div style="font-weight:800;font-size:.78rem;color:${accent}">${result}</div><div style="font-size:.82rem;color:var(--txt);margin-top:.1rem">${escapeProfileText(match.scoreLabel)}</div></div>
+  </article>`;
+}
+
+async function renderProfile() {
+  const body = document.getElementById('profile-body');
+  if (!body) return;
+  body.innerHTML = `<div style="max-width:720px;margin:0 auto;padding:1rem 0"><div style="padding:1.5rem;text-align:center;color:var(--txt3)">Carregando seu desempenho...</div></div>`;
+  try {
+    const data = await trpcQuery('localAuth.profileDashboard');
+    const profile = data.profile;
+    const stats = data.stats;
+    const displayName = escapeProfileText(profile.name || 'Gaudério');
+    const location = [profile.city, profile.state].filter(Boolean).map(escapeProfileText).join(' · ') || 'Região não informada';
+    const history = data.recentMatches || [];
+    const winRateWidth = Math.max(0, Math.min(100, stats.winRate || 0));
+    const statCard = (label, value, color, hint) => `<div style="background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:.75rem;min-width:0"><div style="font-size:.6rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.09em">${label}</div><div style="font-size:1.25rem;font-weight:800;color:${color};margin-top:.18rem">${value}</div>${hint ? `<div style="font-size:.62rem;color:var(--txt3);margin-top:.15rem">${hint}</div>` : ''}</div>`;
+    body.innerHTML = `<div style="max-width:720px;margin:0 auto;padding-bottom:1.25rem">
+      <section style="background:linear-gradient(135deg,var(--surf),var(--surf2));border:1px solid var(--gold-bdr);border-radius:calc(var(--r) + 4px);padding:1rem;margin-bottom:.85rem;display:flex;gap:.85rem;align-items:center">
+        <div style="width:3.5rem;height:3.5rem;border-radius:50%;display:grid;place-items:center;background:var(--gold-bg);border:1px solid var(--gold-bdr);font-size:1.75rem">🤠</div>
+        <div style="min-width:0;flex:1"><h2 style="margin:0;color:var(--txt);font-size:1.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${displayName}</h2><p style="margin:.18rem 0 0;color:var(--txt3);font-size:.72rem">${location}</p><p style="margin:.18rem 0 0;color:var(--txt3);font-size:.62rem">Na cancha desde ${formatProfileDate(profile.createdAt)}</p></div>
+        <button onclick="openModal('m-auth');renderAuthModal()" style="background:transparent;border:1px solid var(--bdr2);color:var(--txt2);border-radius:var(--r);padding:.45rem .55rem;cursor:pointer;font-family:inherit;font-size:.7rem">Conta</button>
+      </section>
+      <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem;margin-bottom:.85rem">
+        ${statCard('Vitórias', stats.wins, 'var(--green)', `${stats.total} partidas`)}
+        ${statCard('Taxa de vitória', `${stats.winRate}%`, 'var(--gold-d)', `${stats.losses} derrotas`)}
+        ${statCard('Partidas online', stats.onlineMatches, 'var(--blue)', 'contra outros jogadores')}
+        ${statCard('Pontos por partida', stats.averageScore == null ? '—' : stats.averageScore, 'var(--txt)', stats.averageOpponentScore == null ? 'Sem placar registrado' : `adversário: ${stats.averageOpponentScore}`)}
+      </section>
+      <section style="background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:.8rem;margin-bottom:.85rem">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:.75rem"><div><div style="font-size:.7rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.1em">Aproveitamento</div><strong style="font-size:1rem;color:var(--txt)">${stats.wins} vitórias em ${stats.total} partidas</strong></div><span style="font-size:.8rem;font-weight:800;color:var(--gold-d)">${stats.winRate}%</span></div>
+        <div style="height:.5rem;background:var(--surf2);border-radius:999px;overflow:hidden;margin-top:.6rem"><div style="height:100%;width:${winRateWidth}%;background:linear-gradient(90deg,var(--gold),var(--green));border-radius:inherit;transition:width .2s ease-out"></div></div>
+      </section>
+      <section style="background:var(--surf);border:1px solid var(--bdr);border-radius:var(--r);padding:.8rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem"><div><div style="font-size:.7rem;color:var(--txt3);text-transform:uppercase;letter-spacing:.1em">Histórico de partidas</div><strong style="font-size:.92rem;color:var(--txt)">Últimas ${Math.min(history.length, 25)} partidas</strong></div><button onclick="renderProfile()" style="background:transparent;border:1px solid var(--bdr2);color:var(--txt2);border-radius:var(--r);padding:.35rem .5rem;cursor:pointer;font-family:inherit;font-size:.68rem">Atualizar</button></div>
+        <div style="margin-top:.45rem">${history.length ? history.map(renderProfileMatch).join('') : `<div style="text-align:center;padding:1.5rem .5rem;color:var(--txt3)"><div style="font-size:1.4rem">🃏</div><strong style="display:block;color:var(--txt2);margin:.35rem 0">Ainda não há partidas registradas</strong><span style="font-size:.72rem">Jogue contra a IA ou entre em uma sala online para construir seu histórico.</span></div>`}</div>
+      </section>
+    </div>`;
+  } catch (error) {
+    console.error('Erro ao carregar perfil:', error);
+    body.innerHTML = `<div style="max-width:520px;margin:2rem auto;text-align:center;padding:1.25rem;background:var(--surf);border:1px solid var(--red);border-radius:var(--r)"><div style="font-size:1.5rem">⚠️</div><strong style="display:block;margin:.45rem 0;color:var(--txt)">Não foi possível carregar o perfil</strong><p style="font-size:.75rem;color:var(--txt3);margin:0 0 .8rem">Verifique sua conexão e tente novamente.</p><button onclick="renderProfile()" style="background:var(--gold);border:0;color:#fff;border-radius:var(--r);padding:.5rem .8rem;cursor:pointer;font-family:inherit;font-weight:700">Tentar novamente</button></div>`;
+  }
 }
 // ══ FUNÇÕES UNIFICADAS (deal/humanPlay/startGame/checkRound/endGame) ══
 

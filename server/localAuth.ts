@@ -21,6 +21,86 @@ import { sendPinResetEmail } from './email';
 const PIN_REGEX = /^\d{6}$/;
 const RESET_APP_ORIGIN = process.env.PUBLIC_APP_URL || 'https://trucotche-cut9vr7p.manus.space';
 
+type LocalProfileMatch = {
+  id: number;
+  result: 'win' | 'lose';
+  score: string | null;
+  scorePlayer: number | null;
+  scoreOpponent: number | null;
+  characterName: string | null;
+  characterAvatar: string | null;
+  durationSeconds: number | null;
+  playedAt: Date;
+};
+
+type OnlineProfileMatch = {
+  id: number;
+  player1Id: number;
+  player1Name: string;
+  player2Id: number;
+  player2Name: string;
+  winnerId: number;
+  scoreP1: number;
+  scoreP2: number;
+  mode: string;
+  durationSeconds: number | null;
+  isWalkover: boolean;
+  playedAt: Date;
+};
+
+export function buildProfileDashboard(userId: number, localMatches: LocalProfileMatch[], onlineMatches: OnlineProfileMatch[]) {
+  const localTimeline = localMatches.map(match => ({
+    id: `local-${match.id}`,
+    source: 'ia' as const,
+    result: match.result,
+    opponent: match.characterName || 'Desafio contra IA',
+    opponentAvatar: match.characterAvatar || '🤠',
+    scorePlayer: match.scorePlayer,
+    scoreOpponent: match.scoreOpponent,
+    scoreLabel: match.score || (match.scorePlayer !== null && match.scoreOpponent !== null ? `${match.scorePlayer} × ${match.scoreOpponent}` : '—'),
+    durationSeconds: match.durationSeconds,
+    isWalkover: false,
+    playedAt: match.playedAt,
+  }));
+
+  const onlineTimeline = onlineMatches.map(match => {
+    const isPlayer1 = match.player1Id === userId;
+    return {
+      id: `online-${match.id}`,
+      source: 'online' as const,
+      result: match.winnerId === userId ? 'win' as const : 'lose' as const,
+      opponent: isPlayer1 ? match.player2Name : match.player1Name,
+      opponentAvatar: '🌐',
+      scorePlayer: isPlayer1 ? match.scoreP1 : match.scoreP2,
+      scoreOpponent: isPlayer1 ? match.scoreP2 : match.scoreP1,
+      scoreLabel: `${isPlayer1 ? match.scoreP1 : match.scoreP2} × ${isPlayer1 ? match.scoreP2 : match.scoreP1}`,
+      durationSeconds: match.durationSeconds,
+      isWalkover: match.isWalkover,
+      mode: match.mode,
+      playedAt: match.playedAt,
+    };
+  });
+
+  const matches = [...localTimeline, ...onlineTimeline]
+    .sort((a, b) => b.playedAt.getTime() - a.playedAt.getTime());
+  const wins = matches.filter(match => match.result === 'win').length;
+  const losses = matches.filter(match => match.result === 'lose').length;
+  const scored = matches.filter(match => match.scorePlayer !== null && match.scoreOpponent !== null);
+
+  return {
+    stats: {
+      wins,
+      losses,
+      total: matches.length,
+      winRate: matches.length ? Math.round((wins / matches.length) * 100) : 0,
+      onlineMatches: onlineTimeline.length,
+      averageScore: scored.length ? Math.round(scored.reduce((sum, match) => sum + (match.scorePlayer ?? 0), 0) / scored.length) : null,
+      averageOpponentScore: scored.length ? Math.round(scored.reduce((sum, match) => sum + (match.scoreOpponent ?? 0), 0) / scored.length) : null,
+    },
+    recentMatches: matches.slice(0, 25),
+  };
+}
+
 /** Generates a cryptographically secure reset token */
 function generateResetToken(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -344,6 +424,26 @@ export const localAuthRouter = router({
       loginMethod: ctx.user.loginMethod,
       googleLinked: ctx.user.googleLinked ?? false,
       createdAt: ctx.user.createdAt,
+    };
+  }),
+
+  /** Perfil completo com indicadores persistidos e linha do tempo de partidas. */
+  profileDashboard: protectedProcedure.query(async ({ ctx }) => {
+    const [localMatches, onlineMatches] = await Promise.all([
+      db.getMatchHistory(ctx.user.id, 'all'),
+      db.getOnlineMatchHistory(ctx.user.id, 100),
+    ]);
+    const dashboard = buildProfileDashboard(ctx.user.id, localMatches, onlineMatches);
+    return {
+      profile: {
+        id: ctx.user.id,
+        name: ctx.user.name,
+        email: ctx.user.email,
+        state: ctx.user.state,
+        city: ctx.user.city,
+        createdAt: ctx.user.createdAt,
+      },
+      ...dashboard,
     };
   }),
 
