@@ -19,6 +19,7 @@ import * as db from './db';
 import { sendPinResetEmail } from './email';
 
 const PIN_REGEX = /^\d{6}$/;
+const RESET_APP_ORIGIN = process.env.PUBLIC_APP_URL || 'https://trucotche-cut9vr7p.manus.space';
 
 /** Generates a cryptographically secure reset token */
 function generateResetToken(): string {
@@ -173,7 +174,6 @@ export const localAuthRouter = router({
   forgotPin: publicProcedure
     .input(z.object({
       email: z.string().email(),
-      origin: z.string().url().optional(),
     }))
     .mutation(async ({ input }) => {
       const email = input.email.toLowerCase();
@@ -192,12 +192,11 @@ export const localAuthRouter = router({
       await db.createPinResetToken(user.id, token);
 
       // Sugestão 1: Send token via email (not in response body)
-      const origin = input.origin ?? 'https://trucotche.manus.space';
       const emailSent = await sendPinResetEmail(
         user.email!,
         user.name ?? 'Jogador',
         token,
-        origin,
+        RESET_APP_ORIGIN,
       );
 
       if (!emailSent) {
@@ -235,10 +234,14 @@ export const localAuthRouter = router({
       }
 
       const pinHash = await bcrypt.hash(input.newPin, 10);
+      const consumed = await db.consumePinResetToken(input.resetToken);
+      if (!consumed) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Token inválido ou expirado. Solicite um novo.',
+        });
+      }
       await db.updateUserPin(entry.userId, pinHash);
-
-      // Sugestão 3: Mark token as used in database
-      await db.consumePinResetToken(input.resetToken);
 
       const user = await db.getUserById(entry.userId);
       if (!user) {
@@ -269,7 +272,15 @@ export const localAuthRouter = router({
         scoreOpponent: z.number().int().min(0).max(30).optional(),
         characterName: z.string().max(100).optional(),
         characterAvatar: z.string().max(10).optional(),
-        durationSeconds: z.number().int().optional(),
+        durationSeconds: z.number().int().min(0).max(86_400).optional(),
+      }).superRefine((value, ctx) => {
+        if (value.scorePlayer === undefined || value.scoreOpponent === undefined) return;
+        const validOutcome = value.result === 'win'
+          ? value.scorePlayer > value.scoreOpponent
+          : value.scorePlayer < value.scoreOpponent;
+        if (!validOutcome) {
+          ctx.addIssue({ code: 'custom', message: 'O resultado deve ser compatível com o placar.', path: ['result'] });
+        }
       })
     )
     .mutation(async ({ input, ctx }) => {

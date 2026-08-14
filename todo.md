@@ -28,3 +28,18 @@
 - [x] Manter a configuração Mercado Pago postergada, conforme solicitado pelo usuário.
 - [x] Emitir e exibir o total global de jogadores online no cabeçalho em tempo real.
 - [x] Validar o contador de jogadores online com múltiplos clientes Socket.IO.
+- [x] Auditar rotas, navegação, interface e fluxos de autenticação ponta a ponta.
+- [x] Auditar regras de jogo, Socket.IO, salas, reconexão e persistência.
+- [x] Auditar qualidade, segurança básica, build e comportamento de produção.
+- [x] Consolidar achados, aplicar correções seguras e documentar pendências remanescentes.
+- [x] Corrigir reconexão Socket.IO que aceita `userId` não autenticado e expõe estado privado de jogo.
+- [x] Corrigir encerramento de partida após pontuação decisiva em Envido e Flor.
+- [x] Corrigir a sequência de contra-flor pelo jogador respondente.
+- [x] Restringir origem de recuperação de PIN e tornar o consumo do token atômico.
+- [x] Sanitizar a renderização e os protocolos de URLs de patrocinadores.
+- [x] Avaliar e priorizar 1 vulnerabilidade crítica, 22 altas, 50 moderadas e 10 baixas apontadas nas dependências de produção.
+- [x] Corrigir ou documentar explicitamente a regra de desistência fora de turno e adicionar teste de regressão.
+- [x] Sanitizar os previews administrativos de patrocinadores em `openSponsorForm` e `updateBannerPreview`.
+- [x] Reexecutar a auditoria estática de recuperação e reset de PIN, incluindo o fluxo administrativo de patrocinadores.
+- [ ] Atualizar dependências vulneráveis em checkpoint dedicado e reexecutar a auditoria de pacotes.
+- [ ] Migrar o multiplayer para Reserved Hosting ou coordenar o estado fora da memória antes de operar com múltiplas instâncias Autoscale.

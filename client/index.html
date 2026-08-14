@@ -7327,7 +7327,7 @@ function attemptReconnect() {
 function tryRejoinGame() {
   const user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
   if (!user || !sioGameActive) return;
-  sio.emit('reconnect_game', { userId: user.id, userName: user.name || user.email }, (res) => {
+  sio.emit('reconnect_game', {}, (res) => {
     if (res && res.success) {
       sioRoom = res.roomCode;
       sioRole = res.role;
@@ -7344,17 +7344,19 @@ function tryRejoinGame() {
 // ── Socket.io Connection ──
 var sioAuthenticated = false;
 var _sioAuthCallbacks = Array.isArray(_sioAuthCallbacks) ? _sioAuthCallbacks : []; // callbacks waiting for auth
-function _sioDoAuth() {
+function _sioDoAuth(onAuthenticated) {
   sioAuthenticated = false;
   const user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
   if (user) {
     sioMyName = user.name || user.email || 'Jogador';
     sio.emit('auth', { userId: user.id, userName: sioMyName }, function(res) {
+      if (!res || !res.success) return;
       sioAuthenticated = true;
       console.log('[SIO] Auth confirmed for', sioMyName);
       // Flush pending callbacks
       var cbs = Array.isArray(_sioAuthCallbacks) ? _sioAuthCallbacks.splice(0) : [];
       cbs.forEach(function(fn) { fn(); });
+      if (typeof onAuthenticated === 'function') onAuthenticated();
     });
   }
 }
@@ -7383,10 +7385,8 @@ function ensureSocket() {
     if (sioReconnectTimer) { clearTimeout(sioReconnectTimer); sioReconnectTimer = null; }
     console.log('[SIO] Connected:', sio.id);
     showConnectionBanner('hidden');
-    // Auth with user info
-    _sioDoAuth();
-    // Try to rejoin if we were in a game
-    tryRejoinGame();
+    // Authenticate before requesting a reconnection, so identity is verified server-side.
+    _sioDoAuth(function() { tryRejoinGame(); });
   });
   sio.on('connect_error', (error) => {
     console.error('[SIO] Connection error:', error.message || error);
@@ -8921,9 +8921,11 @@ function showOnlineFlorModal(data) {
         <div style="font-size:2rem;text-align:center;margin-bottom:.5rem">🌸</div>
         <div style="font-size:1.1rem;font-weight:700;text-align:center;margin-bottom:.3rem">Flor!</div>
         <div style="font-size:.75rem;color:var(--txt3);text-align:center;margin-bottom:1rem">Aposta: ${data.bet} pontos</div>
-        <div style="display:flex;gap:.5rem;justify-content:center">
+        <div style="display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap">
           <button onclick="sio.emit('accept_flor',{});closeOnlineModal('m-online-flor')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
           <button onclick="sio.emit('refuse_flor',{});closeOnlineModal('m-online-flor')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Recusar</button>
+          ${data.action === 'flor' ? `<button onclick="sio.emit('call_flor',{action:'contra_flor'});closeOnlineModal('m-online-flor')" style="background:var(--tg-gold);color:#2b1705;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:800;cursor:pointer;font-size:.8rem">Contra-Flor</button>` : ''}
+          ${data.action === 'contra_flor' ? `<button onclick="sio.emit('call_flor',{action:'contra_flor_resto'});closeOnlineModal('m-online-flor')" style="background:var(--tg-gold);color:#2b1705;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:800;cursor:pointer;font-size:.8rem">Contra-Flor e o Resto</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -9173,6 +9175,21 @@ async function loadAdminMonitoring() {
 }
 
 // ─── SPONSORS ───
+function escapeSponsorText(value) {
+  return String(value == null ? '' : value).replace(/[&<>'"]/g, function(char) {
+    return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char];
+  });
+}
+
+function safeSponsorUrl(value, allowBlob) {
+  try {
+    const parsed = new URL(String(value || ''));
+    return parsed.protocol === 'https:' || (allowBlob && parsed.protocol === 'blob:') ? parsed.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+
 async function loadAdminSponsors() {
   const list = document.getElementById('admin-sponsor-list');
   if (!list) return;
@@ -9183,15 +9200,18 @@ async function loadAdminSponsors() {
       list.innerHTML = '<div style="color:#666;text-align:center;padding:2rem">Nenhum patrocinador cadastrado.</div>';
       return;
     }
-    list.innerHTML = sponsors.map(s => `
+    list.innerHTML = sponsors.map(s => {
+      const mediaUrl = safeSponsorUrl(s.mediaUrl);
+      const name = escapeSponsorText(s.name);
+      return `
       <div style="background:#1a1a2e;border:1px solid #333;border-radius:10px;padding:.8rem;display:flex;gap:.8rem;align-items:center">
         <div style="width:60px;height:60px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#000">
           ${s.mediaType === 'video'
-            ? `<video src="${s.mediaUrl}" style="width:100%;height:100%;object-fit:cover" muted></video>`
-            : `<img src="${s.mediaUrl}" style="width:100%;height:100%;object-fit:cover" alt="${s.name}">`}
+            ? `<video src="${mediaUrl}" style="width:100%;height:100%;object-fit:cover" muted></video>`
+            : `<img src="${mediaUrl}" style="width:100%;height:100%;object-fit:cover" alt="${name}">`}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="color:#fff;font-weight:600;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.name}</div>
+          <div style="color:#fff;font-weight:600;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
           <div style="color:#888;font-size:.7rem">${s.position === 'top' ? 'Topo' : 'Rodap\u00e9'} \u2022 ${s.active ? '\u2705 Ativo' : '\u274c Inativo'} \u2022 ${s.slideDuration}s${s.dailyImpressionGoal > 0 ? ' \u2022 Meta: ' + s.dailyImpressionGoal.toLocaleString('pt-BR') + '/dia' : ''}${(() => { const t = new Date().toISOString().slice(0,10); if (s.startDate && s.startDate > t) return ' \u2022 \u23f3 Agendada (' + s.startDate + ')'; if (s.endDate && s.endDate < t) return ' \u2022 \u26d4 Encerrada (' + s.endDate + ')'; if (s.startDate || s.endDate) return ' \u2022 \ud83d\udfe2 ' + (s.startDate || '...') + ' a ' + (s.endDate || '...'); return ''; })()}</div>
         </div>
         <div style="display:flex;gap:.3rem">
@@ -9199,7 +9219,8 @@ async function loadAdminSponsors() {
           <button onclick="adminDeleteSponsor(${s.id})" style="background:#ff4444;color:#fff;border:none;padding:.4rem .6rem;border-radius:6px;cursor:pointer;font-size:.75rem">\ud83d\uddd1\ufe0f</button>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
   } catch (e) {
     list.innerHTML = '<div style="color:#ff4444;text-align:center;padding:2rem">Erro ao carregar patrocinadores.</div>';
   }
@@ -9226,12 +9247,16 @@ function openSponsorForm(sponsor) {
   const mediaTypeEl = document.getElementById('sf-media-type');
   if (mediaTypeEl) mediaTypeEl.value = sponsor ? (sponsor.mediaType || 'image') : 'image';
   const preview = document.getElementById('sf-media-preview');
-  if (sponsor && sponsor.mediaUrl) {
+  const safeMediaUrl = sponsor ? safeSponsorUrl(sponsor.mediaUrl) : '';
+  if (sponsor && safeMediaUrl) {
     preview.style.display = 'block';
-    preview.innerHTML = sponsor.mediaType === 'video'
-      ? `<video src="${sponsor.mediaUrl}" style="max-width:100%;max-height:120px" controls></video>`
-      : `<img src="${sponsor.mediaUrl}" style="max-width:100%;max-height:120px">`;
-    preview.dataset.url = sponsor.mediaUrl;
+    preview.innerHTML = '';
+    const media = document.createElement(sponsor.mediaType === 'video' ? 'video' : 'img');
+    media.src = safeMediaUrl;
+    media.style.cssText = 'max-width:100%;max-height:120px';
+    if (sponsor.mediaType === 'video') media.controls = true;
+    preview.appendChild(media);
+    preview.dataset.url = safeMediaUrl;
     preview.dataset.type = sponsor.mediaType;
   } else {
     preview.style.display = 'none';
@@ -9242,8 +9267,8 @@ function openSponsorForm(sponsor) {
   const errEl = document.getElementById('sf-error');
   if (errEl) errEl.style.display = 'none';
   // Atualizar preview ao vivo do banner
-  if (sponsor && sponsor.mediaUrl) {
-    updateBannerPreview(sponsor.mediaUrl, sponsor.mediaType || 'image');
+  if (sponsor && safeMediaUrl) {
+    updateBannerPreview(safeMediaUrl, sponsor.mediaType || 'image');
   } else {
     var ph = document.getElementById('sf-preview-placeholder');
     var pc = document.getElementById('sf-preview-content');
@@ -9286,12 +9311,27 @@ function updateBannerPreview(mediaUrl, mediaType) {
   var content = document.getElementById('sf-preview-content');
   var label = document.getElementById('sf-preview-label');
   if (!content) return;
+  const safeMediaUrl = safeSponsorUrl(mediaUrl, String(mediaUrl || '').startsWith('blob:'));
+  if (!safeMediaUrl) {
+    if (placeholder) placeholder.style.display = '';
+    content.style.display = 'none';
+    content.innerHTML = '';
+    if (label) label.style.display = 'none';
+    return;
+  }
   if (placeholder) placeholder.style.display = 'none';
   content.style.display = 'block';
   if (label) label.style.display = 'block';
-  content.innerHTML = mediaType === 'video'
-    ? '<video src="' + mediaUrl + '" style="max-height:48px;max-width:80%;object-fit:contain;border-radius:4px" autoplay muted loop></video>'
-    : '<img src="' + mediaUrl + '" style="max-height:48px;max-width:80%;object-fit:contain;border-radius:4px">';
+  content.innerHTML = '';
+  const media = document.createElement(mediaType === 'video' ? 'video' : 'img');
+  media.src = safeMediaUrl;
+  media.style.cssText = 'max-height:48px;max-width:80%;object-fit:contain;border-radius:4px';
+  if (mediaType === 'video') {
+    media.autoplay = true;
+    media.muted = true;
+    media.loop = true;
+  }
+  content.appendChild(media);
 }
 
 // Upload sponsor media to S3
@@ -9768,11 +9808,14 @@ function renderSponsorBanner(containerId, sponsors, position) {
 
   function showSponsor(index) {
     const s = filtered[index];
-    const linkStart = s.linkUrl ? `<a href="${s.linkUrl}" target="_blank" rel="noopener" class="sponsor-slide" data-sponsor-id="${s.id}">` : `<div class="sponsor-slide" data-sponsor-id="${s.id}">`;
-    const linkEnd = s.linkUrl ? '</a>' : '</div>';
+    const linkUrl = safeSponsorUrl(s.linkUrl);
+    const mediaUrl = safeSponsorUrl(s.mediaUrl);
+    const name = escapeSponsorText(s.name);
+    const linkStart = linkUrl ? `<a href="${linkUrl}" target="_blank" rel="noopener noreferrer" class="sponsor-slide" data-sponsor-id="${s.id}">` : `<div class="sponsor-slide" data-sponsor-id="${s.id}">`;
+    const linkEnd = linkUrl ? '</a>' : '</div>';
     const mediaHtml = s.mediaType === 'video'
-      ? `<video src="${s.mediaUrl}" autoplay muted loop playsinline style="max-height:48px;max-width:80%;object-fit:contain;border-radius:4px"></video>`
-      : `<img src="${s.mediaUrl}" alt="${s.name}" style="max-height:48px;max-width:80%;object-fit:contain;border-radius:4px">`;
+      ? `<video src="${mediaUrl}" autoplay muted loop playsinline style="max-height:48px;max-width:80%;object-fit:contain;border-radius:4px"></video>`
+      : `<img src="${mediaUrl}" alt="${name}" style="max-height:48px;max-width:80%;object-fit:contain;border-radius:4px">`;
     container.innerHTML = `${linkStart}${mediaHtml}<span class="sponsor-label">Patrocínio</span>${linkEnd}`;
     // Track impression
     trackSponsorEvent(s.id, 'impression');

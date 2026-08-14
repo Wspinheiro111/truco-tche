@@ -712,6 +712,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           points: result.points,
           envidoPoints: room.state.envidoPoints,
         });
+        if (result.gameWinner) endOnlineGame(io, room, result.gameWinner);
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
@@ -728,6 +729,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         io.to(room.code).emit("envido_resolved", {
           accepted: false, points: result.points,
         });
+        if (result.gameWinner) endOnlineGame(io, room, result.gameWinner);
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
@@ -762,6 +764,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           winnerName: room.nameMap[result.florWinner],
           points: result.points,
         });
+        if (result.gameWinner) endOnlineGame(io, room, result.gameWinner);
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
@@ -776,6 +779,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         room.state = result.state;
         emitGameState(io, room);
         io.to(room.code).emit("flor_resolved", { accepted: false, points: result.points });
+        if (result.gameWinner) endOnlineGame(io, room, result.gameWinner);
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
@@ -1032,28 +1036,32 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Reconnect: rejoin active game ──
-    socket.on("reconnect_game", (data: { userId: number; userName: string }, cb) => {
-      // Validation 1: check userId maps to a room code
-      const roomCode = userToRoom.get(data.userId);
+    socket.on("reconnect_game", (_data, cb) => {
+      const authenticatedUser = socketToUser.get(socket.id);
+      if (!authenticatedUser) return cb?.({ error: "Authentication required" });
+      const { userId, userName } = authenticatedUser;
+
+      // Validation 1: check authenticated user maps to a room code
+      const roomCode = userToRoom.get(userId);
       if (!roomCode) return cb?.({ error: "No active game found" });
 
       // Validation 2: check room still exists in memory
       const room = rooms.get(roomCode);
       if (!room) {
-        userToRoom.delete(data.userId);
+        userToRoom.delete(userId);
         return cb?.({ error: "Room no longer exists in memory" });
       }
 
       // Validation 3: check game state is still active
       if (!room.state || room.state.phase === "game_over") {
-        userToRoom.delete(data.userId);
+        userToRoom.delete(userId);
         return cb?.({ error: "Game no longer active" });
       }
 
       // Validation 4: check userId actually belongs to this room
       const role: Player | null =
-        room.userMap.p1 === data.userId ? "p1" :
-        room.userMap.p2 === data.userId ? "p2" : null;
+        room.userMap.p1 === userId ? "p1" :
+        room.userMap.p2 === userId ? "p2" : null;
       if (!role) return cb?.({ error: "Not a player in this game" });
 
       // Validation 5: check the grace period timer is still active
@@ -1067,7 +1075,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
       if (!pending && !isStillConnected) {
         // Walkover timer already fired and the player was removed
-        userToRoom.delete(data.userId);
+        userToRoom.delete(userId);
         return cb?.({ error: "Reconnection grace period expired (W.O.)" });
       }
 
@@ -1084,14 +1092,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (role === "p1") room.hostSocket = socket.id;
       else room.guestSocket = socket.id;
       socketToRoom.set(socket.id, roomCode);
-      socketToUser.set(socket.id, { userId: data.userId, userName: data.userName });
-      userToRoom.set(data.userId, roomCode);
+      socketToUser.set(socket.id, { userId, userName });
+      userToRoom.set(userId, roomCode);
       socket.join(roomCode);
 
       // Notify opponent
       const opponentRole: Player = role === "p1" ? "p2" : "p1";
       io.to(room.playerMap[opponentRole]).emit("opponent_reconnected", {
-        name: data.userName,
+        name: userName,
       });
 
       // Re-send the current private game state to the reconnected player.
@@ -1114,7 +1122,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
       startTurnTimer(io, room);
 
-      console.log(`[Socket] ${data.userName} reconnected to room ${roomCode} as ${role}`);
+      console.log(`[Socket] ${userName} reconnected to room ${roomCode} as ${role}`);
       cb?.({ success: true, roomCode, role });
     });
 

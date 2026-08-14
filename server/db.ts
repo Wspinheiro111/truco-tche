@@ -352,10 +352,17 @@ export async function getPinResetToken(token: string) {
 /**
  * Marks a token as used after successful PIN reset.
  */
-export async function consumePinResetToken(token: string) {
+export async function consumePinResetToken(token: string): Promise<boolean> {
   const db = await getDb();
-  if (!db) return;
-  await db.update(pinResetTokens).set({ used: true }).where(eq(pinResetTokens.token, token));
+  if (!db) return false;
+  const [result] = await db.update(pinResetTokens)
+    .set({ used: true })
+    .where(and(
+      eq(pinResetTokens.token, token),
+      eq(pinResetTokens.used, false),
+      gt(pinResetTokens.expiresAt, new Date()),
+    ));
+  return result.affectedRows === 1;
 }
 
 // ─── Match History ────────────────────────────────────────────────────────────

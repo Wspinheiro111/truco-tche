@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createGameState, dealHand, playCard, callTruco, acceptTruco,
-  refuseTruco, callEnvido, acceptEnvido, refuseEnvido,
+  refuseTruco, callEnvido, acceptEnvido, refuseEnvido, callFlor, acceptFlor,
   fold, getPlayerView, TRUCO_POINTS, TURN_TIMEOUT_MS, isTurnExpired,
 } from "./gameEngine";
 
@@ -90,6 +90,15 @@ describe("Game Engine", () => {
     expect(result.handWinner).toBe(other);
   });
 
+  it("allows a player to fold their own hand outside the current turn", () => {
+    const dealt = dealHand(createGameState());
+    const player = dealt.turn === "p1" ? "p2" : "p1";
+    const winner = player === "p1" ? "p2" : "p1";
+    const result = fold(dealt, player);
+    expect(result.handWinner).toBe(winner);
+    expect(result.state.score[winner]).toBe(1);
+  });
+
   it("getPlayerView hides opponent cards", () => {
     const dealt = dealHand(createGameState());
     const view = getPlayerView(dealt, "p1");
@@ -154,5 +163,23 @@ describe("Game Engine", () => {
     const tied = { ...negotiation, envidoPoints: { p1: 20, p2: 20 } };
     const result = acceptEnvido(tied, tied.turn);
     expect(result.envidoWinner).toBe(dealt.handMano);
+  });
+
+  it("ends the game when accepted Envido reaches the target", () => {
+    const dealt = dealHand(createGameState(31, 12));
+    const pending = { ...dealt, phase: "envido_neg" as const, turn: "p2" as const, score: { p1: 11, p2: 0 }, envidoCaller: "p1" as const, envidoBet: 2, envidoPoints: { p1: 33, p2: 20 } };
+    const result = acceptEnvido(pending, "p2");
+    expect(result.gameWinner).toBe("p1");
+    expect(result.state.phase).toBe("game_over");
+  });
+
+  it("allows and resolves a counter-flor sequence", () => {
+    const dealt = dealHand(createGameState(32, 12));
+    const first = { ...dealt, hasFlor: { p1: true, p2: true } };
+    const flor = callFlor(first, first.turn, "flor");
+    const raised = callFlor(flor, flor.turn, "contra_flor");
+    expect(raised.florChain).toEqual(["flor", "contra_flor"]);
+    const accepted = acceptFlor(raised, raised.turn);
+    expect(accepted.points).toBeGreaterThan(0);
   });
 });

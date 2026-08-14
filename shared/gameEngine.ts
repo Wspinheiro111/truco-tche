@@ -553,7 +553,7 @@ export function callEnvido(
 export function acceptEnvido(
   state: GameState,
   responder?: Player,
-): { state: GameState; envidoWinner: Player; points: number } {
+): { state: GameState; envidoWinner: Player; points: number; gameWinner?: Player } {
   if (state.phase !== 'envido_neg' || !state.envidoCaller) {
     throw new Error('No envido pending');
   }
@@ -561,16 +561,25 @@ export function acceptEnvido(
     throw new Error(`Not ${responder}'s turn`);
   }
   const bet = state.envidoBet;
-  const actualBet = bet === -1
-    ? state.target - Math.min(state.score.p1, state.score.p2)
-    : bet;
   const winner: Player = state.envidoPoints.p1 > state.envidoPoints.p2
     ? 'p1'
     : state.envidoPoints.p2 > state.envidoPoints.p1
       ? 'p2'
       : state.handMano;
+  const actualBet = bet === -1
+    ? Math.max(0, state.target - state.score[winner])
+    : bet;
   const newScore = { ...state.score };
   newScore[winner] += actualBet;
+
+  if (newScore[winner] >= state.target) {
+    return {
+      state: { ...state, score: newScore, envidoResolved: true, phase: 'game_over', winner, turnStartedAt: Date.now() },
+      envidoWinner: winner,
+      points: actualBet,
+      gameWinner: winner,
+    };
+  }
 
   return {
     state: {
@@ -589,7 +598,7 @@ export function acceptEnvido(
 export function refuseEnvido(
   state: GameState,
   responder?: Player,
-): { state: GameState; points: number } {
+): { state: GameState; points: number; gameWinner?: Player } {
   if (state.phase !== 'envido_neg' || !state.envidoCaller) {
     throw new Error('No envido pending');
   }
@@ -600,6 +609,14 @@ export function refuseEnvido(
   const winner = state.envidoCaller;
   const newScore = { ...state.score };
   newScore[winner] += pts;
+
+  if (newScore[winner] >= state.target) {
+    return {
+      state: { ...state, score: newScore, envidoResolved: true, phase: 'game_over', winner, turnStartedAt: Date.now() },
+      points: pts,
+      gameWinner: winner,
+    };
+  }
 
   return {
     state: {
@@ -616,16 +633,25 @@ export function refuseEnvido(
 
 // ── Flor Actions ──
 export function callFlor(state: GameState, caller: Player, action: string): GameState {
-  if (state.phase !== 'playing' || state.turn !== caller) {
+  const isInitialCall = state.phase === 'playing';
+  const isCounterCall = state.phase === 'flor_neg';
+  if ((!isInitialCall && !isCounterCall) || state.turn !== caller) {
     throw new Error(`Not ${caller}'s turn`);
   }
   if (!state.hasFlor[caller]) throw new Error('Player does not have flor');
   if (state.envidoResolved || state.playedFirst.p1 || state.playedFirst.p2) {
     throw new Error('Flor is no longer available after the first card');
   }
-  if (state.florChain.length > 0) throw new Error('Flor is already pending');
-  if (!['flor', 'contra_flor', 'contra_flor_resto'].includes(action)) {
-    throw new Error('Invalid flor action');
+  if (isInitialCall) {
+    if (state.florChain.length > 0 || action !== 'flor') throw new Error('Flor is already pending');
+  } else {
+    if (caller === state.florCaller) throw new Error('Caller cannot raise own flor');
+    const expectedAction = state.florChain.length === 1
+      ? 'contra_flor'
+      : state.florChain.length === 2
+        ? 'contra_flor_resto'
+        : null;
+    if (action !== expectedAction) throw new Error('Invalid flor raise');
   }
   const newChain = [...state.florChain, action];
   const bet = getFlorBet(newChain);
@@ -643,7 +669,7 @@ export function callFlor(state: GameState, caller: Player, action: string): Game
 export function acceptFlor(
   state: GameState,
   responder?: Player,
-): { state: GameState; florWinner: Player; points: number } {
+): { state: GameState; florWinner: Player; points: number; gameWinner?: Player } {
   if (state.phase !== 'flor_neg' || !state.florCaller) {
     throw new Error('No flor pending');
   }
@@ -651,17 +677,26 @@ export function acceptFlor(
     throw new Error(`Not ${responder}'s turn`);
   }
   const bet = state.florBet;
-  const actualBet = bet === -1
-    ? state.target - Math.min(state.score.p1, state.score.p2)
-    : bet;
   // Flor uses envido points (same hand)
   const winner: Player = state.envidoPoints.p1 > state.envidoPoints.p2
     ? 'p1'
     : state.envidoPoints.p2 > state.envidoPoints.p1
       ? 'p2'
       : state.handMano;
+  const actualBet = bet === -1
+    ? Math.max(0, state.target - state.score[winner])
+    : bet;
   const newScore = { ...state.score };
   newScore[winner] += actualBet;
+
+  if (newScore[winner] >= state.target) {
+    return {
+      state: { ...state, score: newScore, envidoResolved: true, phase: 'game_over', winner, turnStartedAt: Date.now() },
+      florWinner: winner,
+      points: actualBet,
+      gameWinner: winner,
+    };
+  }
 
   return {
     state: {
@@ -680,7 +715,7 @@ export function acceptFlor(
 export function refuseFlor(
   state: GameState,
   responder?: Player,
-): { state: GameState; points: number } {
+): { state: GameState; points: number; gameWinner?: Player } {
   if (state.phase !== 'flor_neg' || !state.florCaller) {
     throw new Error('No flor pending');
   }
@@ -691,6 +726,14 @@ export function refuseFlor(
   const winner = state.florCaller;
   const newScore = { ...state.score };
   newScore[winner] += pts;
+
+  if (newScore[winner] >= state.target) {
+    return {
+      state: { ...state, score: newScore, envidoResolved: true, phase: 'game_over', winner, turnStartedAt: Date.now() },
+      points: pts,
+      gameWinner: winner,
+    };
+  }
 
   return {
     state: {

@@ -16,6 +16,8 @@ import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 import { notifyOwner } from "./_core/notification";
 
+const sponsorUrl = z.string().url().refine(value => new URL(value).protocol === "https:", "URL de patrocinador deve usar HTTPS");
+
 export const sponsorRouter = router({
   /**
    * Public: list active sponsors for game banners.
@@ -73,9 +75,9 @@ export const sponsorRouter = router({
     .input(
       z.object({
         name: z.string().min(1).max(200),
-        mediaUrl: z.string().url(),
+        mediaUrl: sponsorUrl,
         mediaType: z.enum(["image", "video"]).default("image"),
-        linkUrl: z.string().url().nullable().optional(),
+        linkUrl: sponsorUrl.nullable().optional(),
         position: z.enum(["top", "bottom"]).default("bottom"),
         active: z.boolean().default(true),
         displayOrder: z.number().min(0).default(0),
@@ -98,9 +100,9 @@ export const sponsorRouter = router({
       z.object({
         id: z.number(),
         name: z.string().min(1).max(200).optional(),
-        mediaUrl: z.string().url().optional(),
+        mediaUrl: sponsorUrl.optional(),
         mediaType: z.enum(["image", "video"]).optional(),
-        linkUrl: z.string().url().nullable().optional(),
+        linkUrl: sponsorUrl.nullable().optional(),
         position: z.enum(["top", "bottom"]).optional(),
         active: z.boolean().optional(),
         displayOrder: z.number().min(0).optional(),
