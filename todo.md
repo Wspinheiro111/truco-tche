@@ -43,4 +43,4 @@
 - [x] Reexecutar a auditoria estática de recuperação e reset de PIN, incluindo o fluxo administrativo de patrocinadores.
 - [x] Atualizar dependências vulneráveis prioritárias em checkpoint dedicado e reexecutar a auditoria de pacotes.
 - [x] Salvar checkpoint dedicado da atualização de dependências e da rodada final de auditoria de pacotes.
-- [ ] Migrar o multiplayer para Reserved Hosting ou coordenar o estado fora da memória antes de operar com múltiplas instâncias Autoscale.
+- [x] Manter Autoscale por decisão do usuário, documentando o risco de salas e timers em memória para revisão futura.

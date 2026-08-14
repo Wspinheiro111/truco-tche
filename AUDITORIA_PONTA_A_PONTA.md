@@ -40,6 +40,10 @@ A verificação visual final confirmou carregamento da página inicial, contador
 | P1 | O webhook de Mercado Pago responde `200` mesmo quando o processamento falha; os parsers globais aceitam corpos de 50 MB. | Notificações podem ser perdidas e requisições grandes podem consumir memória. | Quando os pagamentos forem ativados, persistir/encaminhar eventos antes da resposta, adotar retry idempotente e limitar o webhook a um corpo pequeno. |
 | P2 | `/api/health` expõe uptime e memória, e o servidor troca de porta se a configurada estiver ocupada. | Menor exposição operacional; a troca de porta pode mascarar erro de deploy. | Reduzir o healthcheck público ao mínimo e falhar rapidamente em produção se `PORT` estiver indisponível. |
 
+### Decisão de hospedagem
+
+Em **14 de agosto de 2026**, o usuário decidiu manter o modo **Autoscale**. Portanto, o risco de salas e timers em memória permanece aceito para a operação atual. Caso o volume cresça ou ocorram sintomas de partidas não encontradas, perda de estado ou reconexões inconsistentes, a prioridade deve ser migrar para Reserved Hosting ou externalizar a coordenação de salas.
+
 ## Observações de regras
 
 A análise inicial levantou a hipótese de manilhas dependentes da vira. Isso **não é um defeito confirmado** neste projeto: o motor usa as quatro manilhas fixas do Truco Gaúcho. A propriedade `vira` permanece no estado e na documentação interna, mas não participa da força das cartas; recomenda-se apenas esclarecer esse comentário para evitar manutenção equivocada.
