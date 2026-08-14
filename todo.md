@@ -41,5 +41,6 @@
 - [x] Corrigir ou documentar explicitamente a regra de desistência fora de turno e adicionar teste de regressão.
 - [x] Sanitizar os previews administrativos de patrocinadores em `openSponsorForm` e `updateBannerPreview`.
 - [x] Reexecutar a auditoria estática de recuperação e reset de PIN, incluindo o fluxo administrativo de patrocinadores.
-- [ ] Atualizar dependências vulneráveis em checkpoint dedicado e reexecutar a auditoria de pacotes.
+- [x] Atualizar dependências vulneráveis prioritárias em checkpoint dedicado e reexecutar a auditoria de pacotes.
+- [x] Salvar checkpoint dedicado da atualização de dependências e da rodada final de auditoria de pacotes.
 - [ ] Migrar o multiplayer para Reserved Hosting ou coordenar o estado fora da memória antes de operar com múltiplas instâncias Autoscale.
