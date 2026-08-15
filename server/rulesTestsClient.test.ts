@@ -9,8 +9,9 @@ if (!loaderSource) throw new Error("Carregador do relatório de regras não enco
 
 function setupClient(query: () => Promise<unknown>) {
   const body = { innerHTML: "" };
+  const alert = { focus: vi.fn() };
   const sandbox: Record<string, unknown> = {
-    document: { getElementById: vi.fn(() => body) },
+    document: { getElementById: vi.fn((id: string) => id === "rules-tests-body" ? body : id === "rules-test-failure-alert" ? alert : null) },
     trpcQuery: query,
     escapeRoomText: (value: unknown) => String(value),
     Date,
@@ -18,7 +19,7 @@ function setupClient(query: () => Promise<unknown>) {
   };
   sandbox.window = sandbox;
   vm.runInNewContext(`${loaderSource[0]}; globalThis.runLoader = loadRulesTestReport;`, sandbox);
-  return { body, runLoader: sandbox.runLoader as () => Promise<void> };
+  return { body, alert, runLoader: sandbox.runLoader as () => Promise<void> };
 }
 
 describe("rules test page loader", () => {
@@ -54,7 +55,34 @@ describe("rules test page loader", () => {
     expect(client.body.innerHTML).toContain("5/5");
     expect(client.body.innerHTML).toContain("2/2 · 100%");
     expect((client.body.innerHTML.match(/role=\"progressbar\"/g) || []).length).toBe(6);
+    expect(client.body.innerHTML).toContain("Autoverificação aprovada; nenhuma intervenção é necessária.");
+    expect(client.body.innerHTML).not.toContain("Falha detectada na autoverificação");
     expect(client.body.innerHTML).toContain("Truco é aceito");
+  });
+
+  it("alerts, focuses and recovers when a live check fails", async () => {
+    let shouldFail = true;
+    const client = setupClient(async () => ({
+      suite: "Vitest",
+      summary: { covered: 20, categories: 3, runner: "Vitest" },
+      groups: [{ title: "Truco", description: "Chamadas", scenarios: ["Aceite"] }],
+      execution: shouldFail
+        ? { overall: "failed", passed: 4, total: 5, checks: [{ title: "Contra-Flor chamada", group: "flor", passed: false, detail: "Cadeia não confirmada" }] }
+        : { overall: "passed", passed: 1, total: 1, checks: [{ title: "Contra-Flor chamada", group: "flor", passed: true }] },
+      generatedAt: "2026-08-15T00:00:00.000Z",
+    }));
+
+    await client.runLoader();
+    expect(client.body.innerHTML).toContain('role="alert"');
+    expect(client.body.innerHTML).toContain("Falha detectada na autoverificação");
+    expect(client.body.innerHTML).toContain("Cadeia não confirmada");
+    expect(client.body.innerHTML).toContain("Executar novamente");
+    expect(client.alert.focus).toHaveBeenCalledTimes(1);
+
+    shouldFail = false;
+    await client.runLoader();
+    expect(client.body.innerHTML).toContain("Autoverificação aprovada; nenhuma intervenção é necessária.");
+    expect(client.body.innerHTML).not.toContain("Falha detectada na autoverificação");
   });
 
   it("renders a recoverable error state when the protected report is unavailable", async () => {

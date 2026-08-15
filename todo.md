@@ -83,3 +83,8 @@
 - [x] Adicionar gráfico circular de cobertura geral e barras de progresso por grupo ao relatório administrativo de regras.
 - [x] Exibir barras de execução dos checks em tempo real com percentuais e estados de aprovação ou falha.
 - [x] Validar visualmente os novos indicadores de cobertura, responsividade (375 px, 768 px e 1280 px), testes e build; nenhuma barra extrapolou o painel.
+- [x] Criar alerta visual imediato e acessível para falhas na autoverificação das regras.
+- [x] Destacar checks reprovados e permitir repetir a verificação diretamente pelo alerta.
+- [x] Cobrir alertas de falha, sucesso e recuperação com testes e validação visual.
+- [x] Validar visualmente o alerta de falha e os checks destacados com uma resposta controlada no navegador.
+- [x] Validar visualmente a recuperação pelo botão de nova execução no alerta.
