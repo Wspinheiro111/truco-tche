@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, gte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases } from "../drizzle/schema";
+import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 import mysql from 'mysql2/promise';
@@ -439,6 +439,53 @@ export async function getOnlineMatchHistory(userId: number, limit = 30) {
     .orderBy(desc(onlineMatches.playedAt))
     .limit(limit);
   return result;
+}
+
+// ── Active online game snapshots ─────────────────────────────────────────────
+
+export type ActiveGameSnapshotInput = Omit<InsertActiveOnlineGame, "id" | "createdAt" | "updatedAt">;
+
+export async function createActiveOnlineGame(snapshot: ActiveGameSnapshotInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(activeOnlineGames).values(snapshot);
+  return getActiveOnlineGameByRoom(snapshot.roomCode);
+}
+
+export async function getActiveOnlineGameByRoom(roomCode: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(activeOnlineGames)
+    .where(eq(activeOnlineGames.roomCode, roomCode))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getActiveOnlineGameForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(activeOnlineGames)
+    .where(and(
+      eq(activeOnlineGames.status, "active"),
+      or(eq(activeOnlineGames.player1Id, userId), eq(activeOnlineGames.player2Id, userId)),
+    ))
+    .orderBy(desc(activeOnlineGames.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Atualiza o snapshot apenas se a versão ainda corresponder ao estado lido. */
+export async function updateActiveOnlineGame(
+  roomCode: string,
+  expectedVersion: number,
+  update: Pick<ActiveGameSnapshotInput, "stateJson" | "turnDeadline" | "lastEventId"> & { status?: "active" | "finished" | "abandoned" },
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.update(activeOnlineGames)
+    .set({ ...update, version: expectedVersion + 1, updatedAt: new Date() })
+    .where(and(eq(activeOnlineGames.roomCode, roomCode), eq(activeOnlineGames.version, expectedVersion)));
+  return result[0].affectedRows === 1;
 }
 
 /**

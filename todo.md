@@ -49,3 +49,16 @@
 - [x] Cobrir consulta de perfil com testes e validar os estados de histórico vazio, carregamento e erro.
 - [x] Adicionar teste do dashboard para usuário sem partidas registradas.
 - [x] Validar explicitamente na interface os estados de carregamento, histórico vazio e erro do perfil.
+- [x] Obter revisão independente do Gemini sobre produto, jogo, multiplayer, UX, segurança e operação.
+- [x] Comparar as recomendações com o estado atual e definir um roteiro de evolução priorizado.
+- [x] Validar e planejar a funcionalidade on-line completa: salas, pareamento, jogo autoritativo, reconexão, persistência e operação em produção.
+- [x] Persistir estado vivo de partidas on-line com versão para concorrência otimista.
+- [x] Recuperar partidas, reconexões e prazo de turno a partir do estado persistido.
+- [x] Validar conflito otimista entre duas instâncias de servidor com teste de integração dedicado.
+- [x] Validar fluxo 1v1 em múltiplos clientes, persistência, conflito e reinicialização do servidor.
+- [x] Permitir listar e entrar atomicamente em salas persistidas criadas por outra instância Autoscale.
+- [x] Eliminar corrida de hidratação quando os dois jogadores reconectam simultaneamente após reinício.
+- [x] Recuperar sala aguardando jogador após reconexão ou recarregamento do anfitrião.
+- [x] Expirar salas aguardando de forma persistida sem depender de timer em memória ou reinício.
+- [x] Validar recuperação de negociações pendentes por snapshot: Truco e Envido em duas instâncias, Flor coberta na execução do restaurador de interface.
+- [x] Criar cobertura permanente de retries do motor e smoke tests reproduzíveis de conflito e entrada atômica em sala.

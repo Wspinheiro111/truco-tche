@@ -7358,6 +7358,8 @@ async function renderOnlineHistory() {
 var sioReconnectAttempts = 0;
 var sioReconnectTimer = null;
 var sioOpponentGracePeriod = null; // countdown timer for opponent walkover
+var sioStateSyncTimer = null;
+if (!sioRoom) sioRoom = sessionStorage.getItem('truco_active_room') || null;
 const SIO_MAX_RECONNECT_ATTEMPTS = 8;
 
 // ── Connection status banner ──
@@ -7400,19 +7402,71 @@ function attemptReconnect() {
 // ── Try to rejoin active game after reconnecting ──
 function tryRejoinGame() {
   const user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
-  if (!user || !sioGameActive) return;
+  if (!user || !sio || !sioConnected || !sioAuthenticated) return;
   sio.emit('reconnect_game', {}, (res) => {
     if (res && res.success) {
       sioRoom = res.roomCode;
       sioRole = res.role;
+      sioGameActive = true;
       showConnectionBanner('connected', '✅ Reconectado! Retomando partida...');
       setTimeout(() => showConnectionBanner('hidden'), 3000);
       show('online-game');
-    } else {
-      sioGameActive = false;
-      showConnectionBanner('hidden');
+      scheduleOnlineStateSync();
+    } else if (sioRoom) {
+      // A sala pode estar aguardando início em outra instância. Continue
+      // consultando o snapshot até que a partida ativa exista no banco.
+      scheduleOnlineStateSync();
     }
   });
+}
+
+function scheduleOnlineStateSync() {
+  if (sioStateSyncTimer) return;
+  const sync = () => {
+    sioStateSyncTimer = null;
+    if (!sio || !sioConnected || !sioAuthenticated || (!sioGameActive && !sioRoom)) return;
+    sio.emit('sync_game_state', {}, () => {});
+    sioStateSyncTimer = setTimeout(sync, 2500);
+  };
+  sioStateSyncTimer = setTimeout(sync, 2500);
+}
+
+function stopOnlineStateSync() {
+  if (sioStateSyncTimer) clearTimeout(sioStateSyncTimer);
+  sioStateSyncTimer = null;
+}
+
+function recoverWaitingRoom() {
+  if (!sio || !sioConnected || !sioAuthenticated || sioGameActive) return;
+  sio.emit('recover_waiting_room', {}, (res) => {
+    if (!res?.found) return;
+    sioRoom = res.code;
+    sioRole = 'p1';
+    sessionStorage.setItem('truco_active_room', res.code);
+    scheduleOnlineStateSync();
+  });
+}
+
+function restorePendingOnlineNegotiation(state) {
+  if (!state || state.turn !== state.myRole) return;
+  const callerName = (role) => role === state.myRole ? state.myName : state.opponentName;
+  if (state.phase === 'truco_neg' && !document.getElementById('m-online-truco')) {
+    showOnlineTrucoModal({ level: state.trucoLevel, callerName: callerName(state.trucoCaller) });
+  }
+  if (state.phase === 'envido_neg' && !document.getElementById('m-online-envido')) {
+    showOnlineEnvidoModal({
+      action: (state.envidoChain || []).slice(-1)[0] || 'envido',
+      bet: state.envidoBet,
+      callerName: callerName(state.envidoCaller),
+    });
+  }
+  if (state.phase === 'flor_neg' && !document.getElementById('m-online-flor')) {
+    showOnlineFlorModal({
+      action: (state.florChain || []).slice(-1)[0] || 'flor',
+      bet: state.florBet,
+      callerName: callerName(state.florCaller),
+    });
+  }
 }
 
 // ── Socket.io Connection ──
@@ -7460,7 +7514,7 @@ function ensureSocket() {
     console.log('[SIO] Connected:', sio.id);
     showConnectionBanner('hidden');
     // Authenticate before requesting a reconnection, so identity is verified server-side.
-    _sioDoAuth(function() { tryRejoinGame(); });
+    _sioDoAuth(function() { tryRejoinGame(); recoverWaitingRoom(); });
   });
   sio.on('connect_error', (error) => {
     console.error('[SIO] Connection error:', error.message || error);
@@ -7490,6 +7544,7 @@ function ensureSocket() {
   // ── Game Events ──
   sio.on('game_started', (data) => {
     sioGameActive = true;
+    scheduleOnlineStateSync();
     // Parar countdown da sala
     stopRoomCountdown();
     // Limpar chat do lobby
@@ -7502,6 +7557,12 @@ function ensureSocket() {
   });
 
   sio.on('game_state', (data) => {
+    if (data && (data.reconnected || data.synchronized)) {
+      sioGameActive = true;
+      if (document.getElementById('online-game') && !document.getElementById('online-game').classList.contains('on')) show('online-game');
+      scheduleOnlineStateSync();
+      restorePendingOnlineNegotiation(data);
+    }
     sioGameState = data;
     renderOnlineGame(data);
   });
@@ -7520,6 +7581,9 @@ function ensureSocket() {
 
   sio.on('game_over', (data) => {
     sioGameActive = false;
+    sioRoom = null;
+    sessionStorage.removeItem('truco_active_room');
+    stopOnlineStateSync();
     const isMe = data.winner === sioRole;
     const msg = data.isWalkover
       ? (isMe ? 'Adversário desconectou. Vitória sua!' : 'Você desconectou. Derrota.')
@@ -8230,7 +8294,9 @@ function joinHomeActiveRoom(code) {
 
 function finishRoomJoin(code, res) {
   sioRoom = code;
+  sessionStorage.setItem('truco_active_room', code);
   sioRole = 'p2';
+  scheduleOnlineStateSync();
   sioOpponentName = res.hostName;
   setOnlineLobbyMode('waiting');
   toast('Entrando na sala de ' + res.hostName + '...', 'info');
@@ -8276,7 +8342,9 @@ function socketCreateRoom() {
     if (res.error) { toast(res.error, 'warn'); return; }
     setOnlineLobbyMode('waiting');
     sioRoom = res.code;
+    sessionStorage.setItem('truco_active_room', res.code);
     sioRole = 'p1';
+    scheduleOnlineStateSync();
     // Atualizar nova tela de espera
     var rcodeEl = document.getElementById('sio-rcode');
     if (rcodeEl) rcodeEl.textContent = res.code;

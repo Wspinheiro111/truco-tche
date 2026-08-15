@@ -71,6 +71,21 @@ describe("Game Engine", () => {
     expect(accepted.phase).toBe("playing");
   });
 
+  it("rejects retries of card, Truco call and Truco acceptance", () => {
+    const dealt = dealHand(createGameState());
+    const player = dealt.turn;
+    const card = dealt.hands[player][0];
+    const played = playCard(dealt, player, card.id).state;
+    expect(() => playCard(played, player, card.id)).toThrow();
+
+    const freshHand = dealHand(createGameState());
+    const caller = freshHand.turn;
+    const trucoed = callTruco(freshHand, caller);
+    expect(() => callTruco(trucoed, caller)).toThrow();
+    const accepted = acceptTruco(trucoed);
+    expect(() => acceptTruco(accepted)).toThrow();
+  });
+
   it("handles truco refuse correctly", () => {
     const dealt = dealHand(createGameState());
     const caller = dealt.turn;

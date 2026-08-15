@@ -11,9 +11,9 @@ import {
   callFlor, acceptFlor, refuseFlor, fold, getPlayerView,
   GameState, Player, TRUCO_POINTS, TURN_TIMEOUT_MS as ENGINE_TURN_TIMEOUT_MS,
 } from "../shared/gameEngine";
-import { getDb } from "./db";
+import { createActiveOnlineGame, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame } from "./db";
 import { onlineRooms, onlineMatches, onlineTournaments, onlineTournamentPlayers, users } from "../drizzle/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { getSessionCookieFromHeader } from "./_core/cookies";
 
@@ -51,6 +51,8 @@ interface RoomData {
   // Turn timeout (auto-fold if player takes too long)
   turnTimer: ReturnType<typeof setTimeout> | null;
   turnTimerPlayer: Player | null;
+  /** Versão do snapshot no banco para controlar concorrência entre instâncias. */
+  snapshotVersion: number | null;
 }
 
 // ── In-memory state ──
@@ -71,6 +73,11 @@ let matchmakingLocked = false;
 
 export function getTotalOnlinePlayers(usersBySocket: Iterable<{ userId: number }>): number {
   return new Set(Array.from(usersBySocket, user => user.userId)).size;
+}
+
+export function isWaitingRoomExpired(createdAt: Date | string | number, now = Date.now()): boolean {
+  const createdAtMs = new Date(createdAt).getTime();
+  return Number.isFinite(createdAtMs) && now - createdAtMs >= ROOM_WAIT_TIMEOUT_MS;
 }
 
 const RECONNECT_GRACE_MS = 30_000; // 30 seconds grace period
@@ -149,6 +156,60 @@ function genCode(): string {
   return code;
 }
 
+function getTurnDeadline(state: GameState): Date | null {
+  if (["waiting", "between_hands", "game_over"].includes(state.phase)) return null;
+  return new Date(state.turnStartedAt + state.turnTimeoutMs);
+}
+
+function roomFromSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof getActiveOnlineGameByRoom>>>): RoomData {
+  const state = JSON.parse(snapshot.stateJson) as GameState;
+  return {
+    code: snapshot.roomCode,
+    hostSocket: "",
+    guestSocket: null,
+    hostUserId: snapshot.player1Id,
+    guestUserId: snapshot.player2Id,
+    hostName: snapshot.player1Name,
+    guestName: snapshot.player2Name,
+    mode: "1v1",
+    stakeTier: "amistoso",
+    region: "BR",
+    state,
+    playerMap: { p1: "", p2: "" },
+    userMap: { p1: snapshot.player1Id, p2: snapshot.player2Id },
+    nameMap: { p1: snapshot.player1Name, p2: snapshot.player2Name },
+    startTime: new Date(snapshot.createdAt).getTime(),
+    spectators: new Set(),
+    tournamentId: null,
+    disconnectedPlayers: new Map(),
+    waitingTimer: null,
+    waitingStartedAt: new Date(snapshot.createdAt).getTime(),
+    turnTimer: null,
+    turnTimerPlayer: null,
+    snapshotVersion: snapshot.version,
+  };
+}
+
+async function persistRoomState(room: RoomData, eventId: string): Promise<boolean> {
+  if (!room.state || room.snapshotVersion === null) return true;
+  const persisted = await updateActiveOnlineGame(room.code, room.snapshotVersion, {
+    stateJson: JSON.stringify(room.state),
+    turnDeadline: getTurnDeadline(room.state),
+    lastEventId: eventId,
+    status: room.state.phase === "game_over" ? "finished" : "active",
+  });
+  if (persisted) {
+    room.snapshotVersion += 1;
+    return true;
+  }
+  const latest = await getActiveOnlineGameByRoom(room.code);
+  if (latest?.status === "active") {
+    room.state = JSON.parse(latest.stateJson) as GameState;
+    room.snapshotVersion = latest.version;
+  }
+  return false;
+}
+
 // ── Initialize Socket.io ──
 export function initSocketServer(httpServer: HttpServer): Server {
   const io = new Server(httpServer, {
@@ -158,13 +219,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
   });
   console.log("[Socket.io] Multiplayer server initialized");
 
-  // ── Periodic cleanup: close stale rooms in DB ──
-  // Runs every 5 minutes to mark abandoned any room that is still
-  // 'waiting' or 'playing' in the database but has no active in-memory
-  // counterpart (i.e. the server restarted or the room was never cleaned up).
-  const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  // ── Startup cleanup: closes only abandoned waiting rooms ──
+  // Partidas em andamento são recuperadas do snapshot persistido; nunca devem
+  // ser invalidadas só porque esta instância não possui a sala no Map local.
   const STALE_WAITING_MS   = 10 * 60 * 1000; // 10 min without a guest
-  const STALE_PLAYING_MS   = 60 * 60 * 1000; // 60 min stuck in playing
 
   async function cleanupStaleRooms() {
     try {
@@ -179,8 +237,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
       for (const row of staleWaiting) {
         const updatedMs = new Date(row.updatedAt).getTime();
         const ageMs = now.getTime() - updatedMs;
-        // If no in-memory room OR room is older than stale threshold, close it
-        if (!rooms.has(row.code) || ageMs > STALE_WAITING_MS) {
+        // Em Autoscale, uma sala pode ter sido criada por outra instância; o Map
+        // local não é critério de abandono. Somente a idade persistida decide.
+        if (ageMs > STALE_WAITING_MS) {
           await d.update(onlineRooms)
             .set({ status: 'abandoned' })
             .where(eq(onlineRooms.code, row.code));
@@ -188,53 +247,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
         }
       }
 
-      // 2. Close 'playing' rooms with no active in-memory room that are older than STALE_PLAYING_MS
-      const stalePlaying = await d.select({ code: onlineRooms.code, updatedAt: onlineRooms.updatedAt })
-        .from(onlineRooms)
-        .where(eq(onlineRooms.status, 'playing'));
-
-      for (const row of stalePlaying) {
-        const updatedMs = new Date(row.updatedAt).getTime();
-        const ageMs = now.getTime() - updatedMs;
-        if (!rooms.has(row.code) || ageMs > STALE_PLAYING_MS) {
-          // Before marking as abandoned, notify any connected sockets so they
-          // don’t stay in a "zombie" game screen with no server-side state.
-          const memRoom = rooms.get(row.code);
-          if (memRoom) {
-            // Emit game_over with server_cleanup reason to all players in the room
-            io.to(row.code).emit("game_over", {
-              winner: null,
-              winnerName: null,
-              score: memRoom.state?.score ?? { p1: 0, p2: 0 },
-              isWalkover: true,
-              reason: "server_cleanup",
-            });
-            // Decrement counter if the game was active
-            if (memRoom.state && memRoom.state.phase !== "game_over") {
-              playersInGame = Math.max(0, playersInGame - 2);
-            }
-            // Clean up in-memory references
-            socketToRoom.delete(memRoom.hostSocket);
-            if (memRoom.guestSocket) socketToRoom.delete(memRoom.guestSocket);
-            if (memRoom.hostUserId) userToRoom.delete(memRoom.hostUserId);
-            if (memRoom.guestUserId) userToRoom.delete(memRoom.guestUserId);
-            rooms.delete(row.code);
-            console.log(`[Cleanup] Emitted game_over (server_cleanup) for stale room: ${row.code}`);
-          }
-          await d.update(onlineRooms)
-            .set({ status: 'abandoned' })
-            .where(eq(onlineRooms.code, row.code));
-          console.log(`[Cleanup] Closed stale playing room: ${row.code} (age: ${Math.round(ageMs / 60000)}min)`);
-        }
-      }
     } catch (e) {
       console.error('[Cleanup] Error during stale room cleanup:', e);
     }
   }
 
-  // Run cleanup immediately on startup, then every 5 minutes
-  cleanupStaleRooms();
-  setInterval(cleanupStaleRooms, CLEANUP_INTERVAL_MS);
+  // Execute apenas na inicialização: Cloud Run pode suspender instâncias e
+  // timers recorrentes não são fonte de verdade para limpeza ou recuperação.
+  void cleanupStaleRooms();
 
   // ── Helper: broadcast online stats ──
   function broadcastOnlineStats() {
@@ -345,6 +365,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         waitingStartedAt: Date.now(),
         turnTimer: null,
         turnTimerPlayer: null,
+        snapshotVersion: null,
       };
       rooms.set(code, room);
       socketToRoom.set(socket.id, code);
@@ -359,6 +380,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           rooms.delete(code);
           socketToRoom.delete(r.hostSocket);
           userToRoom.delete(r.hostUserId);
+          void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, code))).catch(() => {});
           broadcastWaitingRooms();
           console.log(`[Socket] Room ${code} timed out (no opponent joined)`);
         }
@@ -385,16 +407,121 @@ export function initSocketServer(httpServer: HttpServer): Server {
       console.log(`[Socket] Room ${code} created by ${user.userName}`);
     });
 
+    // ── Recover waiting room after a refresh or an Autoscale handoff ──
+    socket.on("recover_waiting_room", async (_data, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      const [storedRoom] = await (await db()).select().from(onlineRooms)
+        .where(and(eq(onlineRooms.hostId, user.userId), eq(onlineRooms.status, "waiting")))
+        .orderBy(desc(onlineRooms.createdAt))
+        .limit(1);
+      if (!storedRoom) return cb?.({ found: false });
+
+      const elapsedMs = Date.now() - new Date(storedRoom.createdAt).getTime();
+      const remainingMs = ROOM_WAIT_TIMEOUT_MS - elapsedMs;
+      if (isWaitingRoomExpired(storedRoom.createdAt)) {
+        await (await db()).update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, storedRoom.code));
+        return cb?.({ found: false });
+      }
+
+      let room = rooms.get(storedRoom.code);
+      if (!room) {
+        room = {
+          code: storedRoom.code,
+          hostSocket: socket.id,
+          guestSocket: null,
+          hostUserId: storedRoom.hostId,
+          guestUserId: null,
+          hostName: storedRoom.hostName,
+          guestName: null,
+          mode: storedRoom.mode,
+          stakeTier: storedRoom.stakeTier,
+          region: storedRoom.region,
+          state: null,
+          playerMap: { p1: socket.id, p2: "" },
+          userMap: { p1: storedRoom.hostId, p2: 0 },
+          nameMap: { p1: storedRoom.hostName, p2: "" },
+          startTime: 0,
+          spectators: new Set(),
+          tournamentId: storedRoom.tournamentId,
+          disconnectedPlayers: new Map(),
+          waitingTimer: null,
+          waitingStartedAt: new Date(storedRoom.createdAt).getTime(),
+          turnTimer: null,
+          turnTimerPlayer: null,
+          snapshotVersion: null,
+        };
+        rooms.set(room.code, room);
+      }
+      if (room.waitingTimer) clearTimeout(room.waitingTimer);
+      room.hostSocket = socket.id;
+      room.playerMap.p1 = socket.id;
+      socketToRoom.set(socket.id, room.code);
+      userToRoom.set(user.userId, room.code);
+      socket.join(room.code);
+      room.waitingTimer = setTimeout(() => {
+        const active = rooms.get(room!.code);
+        if (!active || active.guestSocket) return;
+        io.to(active.hostSocket).emit("room_timeout", { code: active.code });
+        rooms.delete(active.code);
+        socketToRoom.delete(active.hostSocket);
+        userToRoom.delete(active.hostUserId);
+        void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, active.code))).catch(() => {});
+        broadcastWaitingRooms();
+      }, remainingMs);
+      cb?.({ found: true, code: room.code, mode: room.mode, stakeTier: room.stakeTier, region: room.region });
+    });
+
     // ── Join Room ──
     socket.on("join_room", async (data: { code: string }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
 
       const code = data.code.toUpperCase();
-      const room = rooms.get(code);
-      if (!room) return cb?.({ error: "Sala não encontrada" });
+      let room = rooms.get(code);
+      if (!room) {
+        const [storedRoom] = await (await db()).select().from(onlineRooms)
+          .where(eq(onlineRooms.code, code))
+          .limit(1);
+        if (!storedRoom || storedRoom.status !== "waiting") return cb?.({ error: "Sala não encontrada" });
+        room = {
+          code: storedRoom.code,
+          hostSocket: "",
+          guestSocket: null,
+          hostUserId: storedRoom.hostId,
+          guestUserId: null,
+          hostName: storedRoom.hostName,
+          guestName: null,
+          mode: storedRoom.mode,
+          stakeTier: storedRoom.stakeTier,
+          region: storedRoom.region,
+          state: null,
+          playerMap: { p1: "", p2: "" },
+          userMap: { p1: storedRoom.hostId, p2: 0 },
+          nameMap: { p1: storedRoom.hostName, p2: "" },
+          startTime: 0,
+          spectators: new Set(),
+          tournamentId: storedRoom.tournamentId,
+          disconnectedPlayers: new Map(),
+          waitingTimer: null,
+          waitingStartedAt: new Date(storedRoom.createdAt).getTime(),
+          turnTimer: null,
+          turnTimerPlayer: null,
+          snapshotVersion: null,
+        };
+        rooms.set(code, room);
+      }
       if (room.guestSocket) return cb?.({ error: "Sala cheia" });
       if (room.hostUserId === user.userId) return cb?.({ error: "Não pode jogar contra si mesmo" });
+
+      const reservation = await (await db()).update(onlineRooms)
+        .set({ guestId: user.userId, guestName: user.userName, status: "playing" })
+        .where(and(
+          eq(onlineRooms.code, code),
+          eq(onlineRooms.status, "waiting"),
+          sql`${onlineRooms.guestId} IS NULL`,
+        ));
+      if (reservation[0].affectedRows !== 1) return cb?.({ error: "Sala cheia ou indisponível" });
 
       // Cancel waiting timeout — opponent joined
       if (room.waitingTimer) { clearTimeout(room.waitingTimer); room.waitingTimer = null; }
@@ -407,13 +534,6 @@ export function initSocketServer(httpServer: HttpServer): Server {
       socketToRoom.set(socket.id, code);
       userToRoom.set(user.userId, code);  // ← Track user for reconnection
       socket.join(code);
-      // Update DB
-      try {
-        await (await db()).update(onlineRooms)
-          .set({ guestId: user.userId, guestName: user.userName, status: "playing" })
-          .where(eq(onlineRooms.code, code));
-      } catch (e) { console.error("[Socket] DB room update error:", e); }
-
       // Notify host
       io.to(room.hostSocket).emit("guest_joined", {
         guestName: user.userName,
@@ -426,7 +546,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       console.log(`[Socket] Room ${code} now has 2 players - starting game...`);
 
       // Auto-start game after short delay
-      setTimeout(() => startGame(io, code), 800);
+      setTimeout(() => { void startGame(io, code); }, 800);
     });
 
     // ── Matchmaking ──
@@ -482,6 +602,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           waitingStartedAt: Date.now(),
           turnTimer: null,
           turnTimerPlayer: null,
+          snapshotVersion: null,
         };
         rooms.set(code, room);
         socketToRoom.set(opponent.socketId, code);
@@ -563,7 +684,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Game Actions ──
-    socket.on("play_card", (data: { cardId: string }, cb) => {
+    socket.on("play_card", async (data: { cardId: string }, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -573,8 +694,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
         const result = playCard(room.state, player, data.cardId);
         room.state = result.state;
 
-        // Send updated views to both players
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, `play_card:${data.cardId}`)) {
+          return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
+        }
 
         if (result.roundResult) {
           io.to(room.code).emit("round_result", {
@@ -593,13 +715,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           if (result.gameWinner) {
             endOnlineGame(io, room, result.gameWinner);
           } else {
-            // Deal next hand after delay
-            setTimeout(() => {
-              if (room.state && room.state.phase !== "game_over") {
-                room.state = dealHand(room.state);
-                emitGameState(io, room);
-              }
-            }, 1500);
+            setTimeout(() => { void dealNextHand(io, room, "next_hand:play_card"); }, 1500);
           }
         }
         cb?.({ ok: true });
@@ -608,14 +724,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
-    socket.on("call_truco", (_data, cb) => {
+    socket.on("call_truco", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
       if (!player) return cb?.({ error: "Not in game" });
       try {
         room.state = callTruco(room.state, player);
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "call_truco")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         const other: Player = player === "p1" ? "p2" : "p1";
         io.to(room.playerMap[other]).emit("truco_called", {
           level: room.state.trucoLevel,
@@ -625,20 +741,20 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("accept_truco", (_data, cb) => {
+    socket.on("accept_truco", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
       if (!player) return cb?.({ error: "Not in game" });
       try {
         room.state = acceptTruco(room.state, player);
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "accept_truco")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("truco_accepted", { level: room.state.trucoLevel });
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("refuse_truco", (_data, cb) => {
+    socket.on("refuse_truco", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -646,31 +762,27 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         const result = refuseTruco(room.state, player);
         room.state = result.state;
+        if (!await persistAndEmitGameState(io, room, "refuse_truco")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("truco_refused", {
           winnerName: room.nameMap[result.handWinner],
         });
         if (result.gameWinner) {
           endOnlineGame(io, room, result.gameWinner);
         } else {
-          setTimeout(() => {
-            if (room.state && room.state.phase !== "game_over") {
-              room.state = dealHand(room.state);
-              emitGameState(io, room);
-            }
-          }, 1500);
+          setTimeout(() => { void dealNextHand(io, room, "next_hand:refuse_truco"); }, 1500);
         }
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("raise_truco", (_data, cb) => {
+    socket.on("raise_truco", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
       if (!player) return cb?.({ error: "Not in game" });
       try {
         room.state = raiseTruco(room.state, player);
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "raise_truco")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         const other: Player = player === "p1" ? "p2" : "p1";
         io.to(room.playerMap[other]).emit("truco_called", {
           level: room.state.trucoLevel,
@@ -680,14 +792,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("call_envido", (data: { action: string }, cb) => {
+    socket.on("call_envido", async (data: { action: string }, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
       if (!player) return cb?.({ error: "Not in game" });
       try {
         room.state = callEnvido(room.state, player, data.action);
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, `call_envido:${data.action}`)) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         const other: Player = player === "p1" ? "p2" : "p1";
         io.to(room.playerMap[other]).emit("envido_called", {
           action: data.action, bet: room.state.envidoBet,
@@ -697,7 +809,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("accept_envido", (_data, cb) => {
+    socket.on("accept_envido", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -705,7 +817,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         const result = acceptEnvido(room.state, player);
         room.state = result.state;
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "accept_envido")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("envido_resolved", {
           accepted: true,
           winnerName: room.nameMap[result.envidoWinner],
@@ -717,7 +829,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("refuse_envido", (_data, cb) => {
+    socket.on("refuse_envido", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -725,7 +837,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         const result = refuseEnvido(room.state, player);
         room.state = result.state;
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "refuse_envido")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("envido_resolved", {
           accepted: false, points: result.points,
         });
@@ -734,14 +846,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("call_flor", (data: { action: string }, cb) => {
+    socket.on("call_flor", async (data: { action: string }, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
       if (!player) return cb?.({ error: "Not in game" });
       try {
         room.state = callFlor(room.state, player, data.action);
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, `call_flor:${data.action}`)) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         const other: Player = player === "p1" ? "p2" : "p1";
         io.to(room.playerMap[other]).emit("flor_called", {
           action: data.action, bet: room.state.florBet,
@@ -750,7 +862,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("accept_flor", (_data, cb) => {
+    socket.on("accept_flor", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -758,7 +870,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         const result = acceptFlor(room.state, player);
         room.state = result.state;
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "accept_flor")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("flor_resolved", {
           accepted: true,
           winnerName: room.nameMap[result.florWinner],
@@ -769,7 +881,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("refuse_flor", (_data, cb) => {
+    socket.on("refuse_flor", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -777,14 +889,14 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         const result = refuseFlor(room.state, player);
         room.state = result.state;
-        emitGameState(io, room);
+        if (!await persistAndEmitGameState(io, room, "refuse_flor")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("flor_resolved", { accepted: false, points: result.points });
         if (result.gameWinner) endOnlineGame(io, room, result.gameWinner);
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
-    socket.on("fold_hand", (_data, cb) => {
+    socket.on("fold_hand", async (_data, cb) => {
       const room = getRoomForSocket(socket.id);
       if (!room || !room.state) return cb?.({ error: "No game" });
       const player = getPlayerRole(room, socket.id);
@@ -792,6 +904,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         const result = fold(room.state, player);
         room.state = result.state;
+        if (!await persistAndEmitGameState(io, room, "fold_hand")) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         io.to(room.code).emit("player_folded", {
           folderName: room.nameMap[player],
           winnerName: room.nameMap[result.handWinner],
@@ -799,12 +912,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         if (result.gameWinner) {
           endOnlineGame(io, room, result.gameWinner);
         } else {
-          setTimeout(() => {
-            if (room.state && room.state.phase !== "game_over") {
-              room.state = dealHand(room.state);
-              emitGameState(io, room);
-            }
-          }, 1500);
+          setTimeout(() => { void dealNextHand(io, room, "next_hand:fold_hand"); }, 1500);
         }
         cb?.({ ok: true });
       } catch (e: any) { cb?.({ error: e.message }); }
@@ -849,8 +957,39 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── List active rooms ──
-    socket.on("list_rooms", (filters: RoomFilters = {}, cb) => {
-      cb?.({ rooms: getWaitingRoomSummaries(rooms.values(), filters) });
+    socket.on("list_rooms", async (filters: RoomFilters = {}, cb) => {
+      try {
+        const normalized = normalizeRoomPreferences({
+          mode: filters.mode === "all" ? undefined : filters.mode,
+          stakeTier: filters.stakeTier === "all" ? undefined : filters.stakeTier,
+          region: filters.region === "all" ? undefined : filters.region,
+        });
+        const clauses = [eq(onlineRooms.status, "waiting")];
+        if (filters.mode && filters.mode !== "all") clauses.push(eq(onlineRooms.mode, normalized.mode));
+        if (filters.stakeTier && filters.stakeTier !== "all") clauses.push(eq(onlineRooms.stakeTier, normalized.stakeTier));
+        if (filters.region && filters.region !== "all") clauses.push(eq(onlineRooms.region, normalized.region));
+        const storedRooms = await (await db()).select({
+          code: onlineRooms.code,
+          hostName: onlineRooms.hostName,
+          mode: onlineRooms.mode,
+          stakeTier: onlineRooms.stakeTier,
+          region: onlineRooms.region,
+          createdAt: onlineRooms.createdAt,
+        }).from(onlineRooms).where(and(...clauses));
+        const expiredRooms = storedRooms.filter(room => isWaitingRoomExpired(room.createdAt));
+        if (expiredRooms.length > 0) {
+          const database = await db();
+          await Promise.all(expiredRooms.map(room => database.update(onlineRooms)
+            .set({ status: "abandoned" })
+            .where(eq(onlineRooms.code, room.code))));
+        }
+        cb?.({ rooms: storedRooms
+          .filter(room => !isWaitingRoomExpired(room.createdAt))
+          .map(({ createdAt: _createdAt, ...room }) => ({ ...room, spectators: rooms.get(room.code)?.spectators.size ?? 0 })) });
+      } catch (error) {
+        console.error("[Socket] list_rooms failed:", error);
+        cb?.({ rooms: [], error: "Não foi possível listar salas" });
+      }
     });
     // ── List live rooms (partidas em andamento para espectadores) ──
     socket.on("list_live_rooms", (_data, cb) => {
@@ -1036,20 +1175,30 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Reconnect: rejoin active game ──
-    socket.on("reconnect_game", (_data, cb) => {
+    socket.on("reconnect_game", async (_data, cb) => {
       const authenticatedUser = socketToUser.get(socket.id);
       if (!authenticatedUser) return cb?.({ error: "Authentication required" });
       const { userId, userName } = authenticatedUser;
 
-      // Validation 1: check authenticated user maps to a room code
-      const roomCode = userToRoom.get(userId);
-      if (!roomCode) return cb?.({ error: "No active game found" });
+      let roomCode = userToRoom.get(userId);
+      let room = roomCode ? rooms.get(roomCode) : undefined;
+      let restoredFromSnapshot = false;
 
-      // Validation 2: check room still exists in memory
-      const room = rooms.get(roomCode);
+      // Em Autoscale, a nova conexão pode chegar a outra instância. Nesse caso,
+      // a fonte de verdade é o snapshot ativo persistido, não o Map local.
       if (!room) {
-        userToRoom.delete(userId);
-        return cb?.({ error: "Room no longer exists in memory" });
+        const snapshot = await getActiveOnlineGameForUser(userId);
+        if (!snapshot || snapshot.status !== "active") return cb?.({ error: "No active game found" });
+        roomCode = snapshot.roomCode;
+        const alreadyHydrated = rooms.get(roomCode);
+        if (alreadyHydrated) {
+          room = alreadyHydrated;
+          restoredFromSnapshot = true;
+        } else {
+          room = roomFromSnapshot(snapshot);
+          rooms.set(roomCode, room);
+          restoredFromSnapshot = true;
+        }
       }
 
       // Validation 3: check game state is still active
@@ -1073,7 +1222,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       const currentSocketForRole = room.playerMap[role];
       const isStillConnected = currentSocketForRole && io.sockets.sockets.has(currentSocketForRole);
 
-      if (!pending && !isStillConnected) {
+      if (!pending && !isStillConnected && !restoredFromSnapshot) {
         // Walkover timer already fired and the player was removed
         userToRoom.delete(userId);
         return cb?.({ error: "Reconnection grace period expired (W.O.)" });
@@ -1086,15 +1235,16 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
 
       // Update socket mapping
+      const resolvedRoomCode = roomCode ?? room.code;
       const oldSocket = room.playerMap[role];
       socketToRoom.delete(oldSocket);
       room.playerMap[role] = socket.id;
       if (role === "p1") room.hostSocket = socket.id;
       else room.guestSocket = socket.id;
-      socketToRoom.set(socket.id, roomCode);
+      socketToRoom.set(socket.id, resolvedRoomCode);
       socketToUser.set(socket.id, { userId, userName });
-      userToRoom.set(userId, roomCode);
-      socket.join(roomCode);
+      userToRoom.set(userId, resolvedRoomCode);
+      socket.join(resolvedRoomCode);
 
       // Notify opponent
       const opponentRole: Player = role === "p1" ? "p2" : "p1";
@@ -1115,7 +1265,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         myRole: role,
         myName: room.nameMap[role],
         opponentName: room.nameMap[opponentRole],
-        roomCode,
+        roomCode: resolvedRoomCode,
         turnTimeoutMs: TURN_TIMEOUT_MS,
         turnTimeLeftMs,
         reconnected: true,
@@ -1123,7 +1273,52 @@ export function initSocketServer(httpServer: HttpServer): Server {
       startTurnTimer(io, room);
 
       console.log(`[Socket] ${userName} reconnected to room ${roomCode} as ${role}`);
-      cb?.({ success: true, roomCode, role });
+      cb?.({ success: true, roomCode: resolvedRoomCode, role });
+    });
+
+    // ── Authoritative sync: refresh state from the persistent snapshot ──
+    socket.on("sync_game_state", async (_data, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Authentication required" });
+
+      const snapshot = await getActiveOnlineGameForUser(user.userId);
+      if (!snapshot || snapshot.status !== "active") return cb?.({ error: "No active game found" });
+
+      let room = rooms.get(snapshot.roomCode);
+      if (!room) {
+        const alreadyHydrated = rooms.get(snapshot.roomCode);
+        room = alreadyHydrated ?? roomFromSnapshot(snapshot);
+        if (!alreadyHydrated) rooms.set(snapshot.roomCode, room);
+      } else if (room.snapshotVersion !== snapshot.version) {
+        room.state = JSON.parse(snapshot.stateJson) as GameState;
+        room.snapshotVersion = snapshot.version;
+      }
+
+      const role: Player | null = room.userMap.p1 === user.userId ? "p1" : room.userMap.p2 === user.userId ? "p2" : null;
+      if (!role || !room.state) return cb?.({ error: "Not a player in this game" });
+
+      room.playerMap[role] = socket.id;
+      if (role === "p1") room.hostSocket = socket.id;
+      else room.guestSocket = socket.id;
+      socketToRoom.set(socket.id, snapshot.roomCode);
+      userToRoom.set(user.userId, snapshot.roomCode);
+      socket.join(snapshot.roomCode);
+
+      const opponentRole: Player = role === "p1" ? "p2" : "p1";
+      const view = getPlayerView(room.state, role);
+      socket.emit("game_state", {
+        ...view,
+        currentPlayer: view.turn,
+        myRole: role,
+        myName: room.nameMap[role],
+        opponentName: room.nameMap[opponentRole],
+        roomCode: snapshot.roomCode,
+        turnTimeoutMs: TURN_TIMEOUT_MS,
+        turnTimeLeftMs: Math.max(0, (room.state.turnStartedAt + room.state.turnTimeoutMs) - Date.now()),
+        synchronized: true,
+      });
+      startTurnTimer(io, room);
+      cb?.({ ok: true, version: snapshot.version });
     });
 
     // ── Disconnect ──
@@ -1197,7 +1392,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 }
 
 // ── Helper: start game in room ──
-function startGame(io: Server, code: string) {
+async function startGame(io: Server, code: string) {
   const room = rooms.get(code);
   console.log(`[startGame] code=${code}, room exists=${!!room}, guestSocket=${room?.guestSocket}`);
   if (!room || !room.guestSocket) {
@@ -1212,6 +1407,27 @@ function startGame(io: Server, code: string) {
   state = dealHand(state);
   room.state = state;
   room.startTime = Date.now();
+
+  try {
+    const snapshot = await createActiveOnlineGame({
+      roomCode: room.code,
+      player1Id: room.userMap.p1,
+      player1Name: room.nameMap.p1,
+      player2Id: room.userMap.p2,
+      player2Name: room.nameMap.p2,
+      stateJson: JSON.stringify(state),
+      version: 1,
+      status: "active",
+      turnDeadline: getTurnDeadline(state),
+      lastEventId: "game_started",
+    });
+    room.snapshotVersion = snapshot?.version ?? 1;
+  } catch (error) {
+    room.state = null;
+    io.to(code).emit("game_error", { message: "Não foi possível preparar a partida on-line. Tente novamente." });
+    console.error(`[startGame] Snapshot creation failed for ${code}:`, error);
+    return;
+  }
   playersInGame += 2; // Atomic counter: 2 players entered an active game
 
   console.log(`[startGame] Starting game in room ${code}`);
@@ -1277,7 +1493,7 @@ function startTurnTimer(io: Server, room: RoomData) {
   room.turnTimerPlayer = currentPlayer;
   const remainingMs = Math.max(1, (room.state.turnStartedAt + TURN_TIMEOUT_MS) - Date.now());
 
-  room.turnTimer = setTimeout(() => {
+  room.turnTimer = setTimeout(() => { void (async () => {
     // Guard: game may have ended, entered a transition, or changed turn.
     if (!room.state
       || ['waiting', 'between_hands', 'game_over'].includes(room.state.phase)
@@ -1295,6 +1511,7 @@ function startTurnTimer(io: Server, room: RoomData) {
     try {
       const result = fold(room.state!, currentPlayer);
       room.state = result.state;
+      if (!await persistAndEmitGameState(io, room, "turn_timeout")) return;
       io.to(room.code).emit("player_folded", {
         folderName: room.nameMap[currentPlayer],
         winnerName: room.nameMap[result.handWinner],
@@ -1303,17 +1520,28 @@ function startTurnTimer(io: Server, room: RoomData) {
       if (result.gameWinner) {
         endOnlineGame(io, room, result.gameWinner);
       } else {
-        setTimeout(() => {
-          if (room.state && room.state.phase !== "game_over") {
-            room.state = dealHand(room.state);
-            emitGameState(io, room);
-          }
-        }, 1500);
+        setTimeout(() => { void dealNextHand(io, room, "next_hand:turn_timeout"); }, 1500);
       }
     } catch (e: any) {
       console.error(`[TurnTimeout] Error during auto-fold: ${e.message}`);
     }
-  }, remainingMs);
+  })(); }, remainingMs);
+}
+
+async function persistAndEmitGameState(io: Server, room: RoomData, eventId: string): Promise<boolean> {
+  const saved = await persistRoomState(room, eventId);
+  if (!saved) {
+    emitGameState(io, room);
+    return false;
+  }
+  emitGameState(io, room);
+  return true;
+}
+
+async function dealNextHand(io: Server, room: RoomData, eventId: string) {
+  if (!room.state || room.state.phase === "game_over") return;
+  room.state = dealHand(room.state);
+  await persistAndEmitGameState(io, room, eventId);
 }
 
 // ── Helper: emit game state to each player (hiding opponent cards) ──
@@ -1373,6 +1601,9 @@ async function endOnlineGame(io: Server, room: RoomData, winner: Player, isWalko
   clearTurnTimer(room); // Stop turn timer when game ends
   room.state.phase = "game_over";
   room.state.winner = winner;
+  if (!await persistRoomState(room, `game_over:${winner}`)) {
+    return;
+  }
   playersInGame = Math.max(0, playersInGame - 2); // Atomic counter: 2 players left the game
 
   const duration = Math.floor((Date.now() - room.startTime) / 1000);

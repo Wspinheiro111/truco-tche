@@ -206,6 +206,37 @@ export type OnlineRoom = typeof onlineRooms.$inferSelect;
 export type InsertOnlineRoom = typeof onlineRooms.$inferInsert;
 
 /**
+ * Snapshot autoritativo de uma partida em andamento. O estado é serializado
+ * após cada transição crítica para permitir reconexão e recuperação em Autoscale.
+ */
+export const activeOnlineGames = mysqlTable("activeOnlineGames", {
+  id: int("id").autoincrement().primaryKey(),
+  roomCode: varchar("roomCode", { length: 10 }).notNull().unique(),
+  player1Id: int("player1Id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  player1Name: varchar("player1Name", { length: 100 }).notNull(),
+  player2Id: int("player2Id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  player2Name: varchar("player2Name", { length: 100 }).notNull(),
+  /** JSON serializado de GameState; nunca é enviado diretamente ao adversário. */
+  stateJson: text("stateJson").notNull(),
+  /** Controle otimista de concorrência entre instâncias. */
+  version: int("version").notNull().default(1),
+  status: mysqlEnum("status", ["active", "finished", "abandoned"]).notNull().default("active"),
+  /** Prazo absoluto do turno, em UTC, recuperável após reconexão. */
+  turnDeadline: timestamp("turnDeadline"),
+  lastEventId: varchar("lastEventId", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  roomIdx: index("aog_room_idx").on(table.roomCode),
+  player1Idx: index("aog_p1_idx").on(table.player1Id),
+  player2Idx: index("aog_p2_idx").on(table.player2Id),
+  statusIdx: index("aog_status_idx").on(table.status),
+}));
+
+export type ActiveOnlineGame = typeof activeOnlineGames.$inferSelect;
+export type InsertActiveOnlineGame = typeof activeOnlineGames.$inferInsert;
+
+/**
  * Online match results (persisted after game ends).
  */
 export const onlineMatches = mysqlTable("onlineMatches", {

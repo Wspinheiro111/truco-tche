@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { getTotalOnlinePlayers, getWaitingRoomSummaries, normalizeRoomPreferences } from "./socketServer";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { getTotalOnlinePlayers, getWaitingRoomSummaries, isWaitingRoomExpired, normalizeRoomPreferences } from "./socketServer";
 
 describe("getWaitingRoomSummaries", () => {
   it("expõe apenas salas que aguardam um segundo jogador", () => {
@@ -26,5 +28,18 @@ describe("getWaitingRoomSummaries", () => {
 
   it("conta jogadores autenticados únicos, não conexões duplicadas", () => {
     expect(getTotalOnlinePlayers([{ userId: 7 }, { userId: 7 }, { userId: 18 }])).toBe(2);
+  });
+
+  it("expira uma sala somente após o prazo persistido de espera", () => {
+    const createdAt = new Date("2026-08-15T00:00:00.000Z");
+    expect(isWaitingRoomExpired(createdAt, createdAt.getTime() + (15 * 60 * 1000) - 1)).toBe(false);
+    expect(isWaitingRoomExpired(createdAt, createdAt.getTime() + (15 * 60 * 1000))).toBe(true);
+  });
+
+  it("preserva a reserva atômica da vaga de convidado", () => {
+    const server = readFileSync(resolve(process.cwd(), "server/socketServer.ts"), "utf8");
+    expect(server).toContain('eq(onlineRooms.status, "waiting")');
+    expect(server).toContain("sql`${onlineRooms.guestId} IS NULL`");
+    expect(server).toContain("reservation[0].affectedRows !== 1");
   });
 });
