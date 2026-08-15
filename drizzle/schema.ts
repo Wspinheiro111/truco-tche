@@ -189,6 +189,10 @@ export const onlineRooms = mysqlTable("onlineRooms", {
   stakeTier: varchar("stakeTier", { length: 16 }).notNull().default("amistoso"),
   /** Region selected by the host to help players find nearby opponents */
   region: varchar("region", { length: 8 }).notNull().default("BR"),
+  /** Private rooms are visible only to the invited friend. */
+  isPrivate: boolean("isPrivate").default(false).notNull(),
+  /** Optional recipient authorized to join this private room. */
+  privateInviteeId: int("privateInviteeId").references(() => users.id, { onDelete: "set null" }),
   /** Room status */
   status: mysqlEnum("status", ["waiting", "playing", "finished", "abandoned"]).notNull().default("waiting"),
   /** Online tournament ID if part of a tournament */
@@ -200,10 +204,47 @@ export const onlineRooms = mysqlTable("onlineRooms", {
   statusIdx: index("room_status_idx").on(table.status),
   hostIdx: index("room_host_idx").on(table.hostId),
   filtersIdx: index("room_filters_idx").on(table.mode, table.stakeTier, table.region),
+  privateInviteeIdx: index("room_private_invitee_idx").on(table.privateInviteeId, table.status),
 }));
 
 export type OnlineRoom = typeof onlineRooms.$inferSelect;
 export type InsertOnlineRoom = typeof onlineRooms.$inferInsert;
+
+// ─── Friends and private game invitations ─────────────────────────────────────
+
+/** A directional friendship request. Reverse requests are accepted by the service layer. */
+export const friendships = mysqlTable("friendships", {
+  id: int("id").autoincrement().primaryKey(),
+  requesterId: int("requesterId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  addresseeId: int("addresseeId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: mysqlEnum("status", ["pending", "accepted", "declined"]).notNull().default("pending"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  respondedAt: timestamp("respondedAt"),
+}, (table) => ({
+  requesterIdx: index("friend_requester_idx").on(table.requesterId, table.status),
+  addresseeIdx: index("friend_addressee_idx").on(table.addresseeId, table.status),
+  uniqueDirection: uniqueIndex("friend_direction_unique_idx").on(table.requesterId, table.addresseeId),
+}));
+
+export type Friendship = typeof friendships.$inferSelect;
+
+/** Invitation from an accepted friend to a private online room. */
+export const friendGameInvites = mysqlTable("friendGameInvites", {
+  id: int("id").autoincrement().primaryKey(),
+  senderId: int("senderId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  receiverId: int("receiverId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  roomCode: varchar("roomCode", { length: 10 }).notNull().references(() => onlineRooms.code, { onDelete: "cascade" }),
+  status: mysqlEnum("status", ["pending", "accepted", "declined", "cancelled", "expired"]).notNull().default("pending"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  respondedAt: timestamp("respondedAt"),
+}, (table) => ({
+  receiverIdx: index("invite_receiver_idx").on(table.receiverId, table.status),
+  roomIdx: index("invite_room_idx").on(table.roomCode),
+  uniquePendingRoom: uniqueIndex("invite_sender_room_unique_idx").on(table.senderId, table.roomCode),
+}));
+
+export type FriendGameInvite = typeof friendGameInvites.$inferSelect;
 
 /**
  * Snapshot autoritativo de uma partida em andamento. O estado é serializado

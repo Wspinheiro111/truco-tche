@@ -113,6 +113,13 @@
       "when": 1786758059786,
       "tag": "0015_skinny_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1786762139453,
+      "tag": "0016_nostalgic_moondragon",
+      "breakpoints": true
     }
   ]
 }

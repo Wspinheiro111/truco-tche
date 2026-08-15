@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getTotalOnlinePlayers, getWaitingRoomSummaries, isWaitingRoomExpired, normalizeRoomPreferences } from "./socketServer";
+import { canJoinPrivateRoom, getTotalOnlinePlayers, getWaitingRoomSummaries, isWaitingRoomExpired, normalizeRoomPreferences } from "./socketServer";
 
 describe("getWaitingRoomSummaries", () => {
   it("expõe apenas salas que aguardam um segundo jogador", () => {
@@ -41,5 +41,11 @@ describe("getWaitingRoomSummaries", () => {
     expect(server).toContain('eq(onlineRooms.status, "waiting")');
     expect(server).toContain("sql`${onlineRooms.guestId} IS NULL`");
     expect(server).toContain("reservation[0].affectedRows !== 1");
+  });
+
+  it("autoriza somente o amigo convidado em sala privada", () => {
+    expect(canJoinPrivateRoom(false, null, 77)).toBe(true);
+    expect(canJoinPrivateRoom(true, 77, 77)).toBe(true);
+    expect(canJoinPrivateRoom(true, 77, 78)).toBe(false);
   });
 });

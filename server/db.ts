@@ -81,6 +81,12 @@ export async function getDb() {
   }
 }
 
+async function getRawPool() {
+  await getDb();
+  if (!_pool) throw new Error("Database not available");
+  return _pool;
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
@@ -1387,4 +1393,129 @@ export async function getTournamentBracket(tournamentId: number) {
     rounds: enrichedRounds,
     currentRoundIndex: bracketData?.currentRound ?? 0,
   };
+}
+
+// ─── Friends and private invitation data ─────────────────────────────────────
+
+export type FriendListItem = {
+  id: number;
+  name: string;
+  city: string | null;
+  state: string | null;
+  friendshipId: number;
+  since: Date;
+};
+
+export async function searchFriendCandidates(userId: number, search: string) {
+  const pool = await getRawPool();
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, name, city, state FROM users WHERE id <> ? AND name LIKE ? ORDER BY name ASC LIMIT 12`,
+    [userId, `%${search.trim()}%`],
+  );
+  return rows.map(row => ({ id: Number(row.id), name: String(row.name ?? "Jogador"), city: row.city ? String(row.city) : null, state: row.state ? String(row.state) : null }));
+}
+
+export async function listFriends(userId: number): Promise<FriendListItem[]> {
+  const pool = await getRawPool();
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT f.id AS friendshipId, f.createdAt AS sinceDate,
+      CASE WHEN f.requesterId = ? THEN u2.id ELSE u1.id END AS id,
+      CASE WHEN f.requesterId = ? THEN u2.name ELSE u1.name END AS name,
+      CASE WHEN f.requesterId = ? THEN u2.city ELSE u1.city END AS city,
+      CASE WHEN f.requesterId = ? THEN u2.state ELSE u1.state END AS state
+     FROM friendships f JOIN users u1 ON u1.id = f.requesterId JOIN users u2 ON u2.id = f.addresseeId
+     WHERE (f.requesterId = ? OR f.addresseeId = ?) AND f.status = 'accepted' ORDER BY name ASC`,
+    [userId, userId, userId, userId, userId, userId],
+  );
+  return rows.map(row => ({ id: Number(row.id), name: String(row.name ?? "Jogador"), city: row.city ? String(row.city) : null, state: row.state ? String(row.state) : null, friendshipId: Number(row.friendshipId), since: new Date(row.sinceDate) }));
+}
+
+export async function listIncomingFriendRequests(userId: number) {
+  const pool = await getRawPool();
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT f.id, f.createdAt, u.id AS requesterId, u.name AS requesterName, u.city, u.state
+     FROM friendships f JOIN users u ON u.id = f.requesterId
+     WHERE f.addresseeId = ? AND f.status = 'pending' ORDER BY f.createdAt DESC`,
+    [userId],
+  );
+  return rows.map(row => ({ id: Number(row.id), requesterId: Number(row.requesterId), requesterName: String(row.requesterName ?? "Jogador"), city: row.city ? String(row.city) : null, state: row.state ? String(row.state) : null, createdAt: new Date(row.createdAt) }));
+}
+
+export async function sendFriendRequest(requesterId: number, addresseeId: number) {
+  if (requesterId === addresseeId) throw new Error("Não é possível adicionar a si mesmo");
+  const pool = await getRawPool();
+  const [existing] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id, requesterId, addresseeId, status FROM friendships WHERE (requesterId = ? AND addresseeId = ?) OR (requesterId = ? AND addresseeId = ?) LIMIT 1`,
+    [requesterId, addresseeId, addresseeId, requesterId],
+  );
+  const relation = existing[0];
+  if (relation?.status === "accepted") return { status: "accepted" as const, autoAccepted: false };
+  if (relation?.status === "pending" && Number(relation.requesterId) === addresseeId) {
+    await pool.execute(`UPDATE friendships SET status = 'accepted', respondedAt = NOW() WHERE id = ?`, [relation.id]);
+    return { status: "accepted" as const, autoAccepted: true };
+  }
+  if (relation?.status === "pending") return { status: "pending" as const, existing: true };
+  if (relation) await pool.execute(`UPDATE friendships SET requesterId = ?, addresseeId = ?, status = 'pending', createdAt = NOW(), respondedAt = NULL WHERE id = ?`, [requesterId, addresseeId, relation.id]);
+  else await pool.execute(`INSERT INTO friendships (requesterId, addresseeId, status) VALUES (?, ?, 'pending')`, [requesterId, addresseeId]);
+  return { status: "pending" as const, existing: false };
+}
+
+export async function respondToFriendRequest(addresseeId: number, friendshipId: number, accept: boolean) {
+  const pool = await getRawPool();
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE friendships SET status = ?, respondedAt = NOW() WHERE id = ? AND addresseeId = ? AND status = 'pending'`,
+    [accept ? "accepted" : "declined", friendshipId, addresseeId],
+  );
+  return result.affectedRows === 1;
+}
+
+export async function removeFriend(userId: number, friendId: number) {
+  const pool = await getRawPool();
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `DELETE FROM friendships WHERE (requesterId = ? AND addresseeId = ?) OR (requesterId = ? AND addresseeId = ?)`,
+    [userId, friendId, friendId, userId],
+  );
+  return result.affectedRows === 1;
+}
+
+export async function areFriends(userId: number, friendId: number) {
+  const pool = await getRawPool();
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT id FROM friendships WHERE ((requesterId = ? AND addresseeId = ?) OR (requesterId = ? AND addresseeId = ?)) AND status = 'accepted' LIMIT 1`,
+    [userId, friendId, friendId, userId],
+  );
+  return rows.length > 0;
+}
+
+export async function createFriendGameInvite(senderId: number, receiverId: number, roomCode: string) {
+  const pool = await getRawPool();
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO friendGameInvites (senderId, receiverId, roomCode, status, expiresAt)
+     VALUES (?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 10 MINUTE))
+     ON DUPLICATE KEY UPDATE receiverId = VALUES(receiverId), status = 'pending', expiresAt = DATE_ADD(NOW(), INTERVAL 10 MINUTE), respondedAt = NULL`,
+    [senderId, receiverId, roomCode],
+  );
+  return Number(result.insertId || 0);
+}
+
+export async function listPendingFriendGameInvites(receiverId: number) {
+  const pool = await getRawPool();
+  await pool.execute(`UPDATE friendGameInvites SET status = 'expired' WHERE receiverId = ? AND status = 'pending' AND expiresAt <= NOW()`, [receiverId]);
+  const [rows] = await pool.execute<mysql.RowDataPacket[]>(
+    `SELECT i.id, i.roomCode, i.expiresAt, u.id AS senderId, u.name AS senderName, r.mode, r.stakeTier, r.region
+     FROM friendGameInvites i JOIN users u ON u.id = i.senderId JOIN onlineRooms r ON r.code = i.roomCode
+     WHERE i.receiverId = ? AND i.status = 'pending' AND r.status = 'waiting' ORDER BY i.createdAt DESC`,
+    [receiverId],
+  );
+  return rows.map(row => ({ id: Number(row.id), roomCode: String(row.roomCode), senderId: Number(row.senderId), senderName: String(row.senderName ?? "Amigo"), mode: String(row.mode), stakeTier: String(row.stakeTier), region: String(row.region), expiresAt: new Date(row.expiresAt) }));
+}
+
+export async function claimFriendGameInvite(receiverId: number, roomCode: string) {
+  const pool = await getRawPool();
+  const [result] = await pool.execute<mysql.ResultSetHeader>(
+    `UPDATE friendGameInvites SET status = 'accepted', respondedAt = NOW()
+     WHERE receiverId = ? AND roomCode = ? AND status = 'pending' AND expiresAt > NOW()`,
+    [receiverId, roomCode],
+  );
+  return result.affectedRows === 1;
 }

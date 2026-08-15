@@ -11,7 +11,7 @@ import {
   callFlor, acceptFlor, refuseFlor, fold, getPlayerView,
   GameState, Player, TRUCO_POINTS, TURN_TIMEOUT_MS as ENGINE_TURN_TIMEOUT_MS,
 } from "../shared/gameEngine";
-import { createActiveOnlineGame, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame } from "./db";
+import { areFriends, claimFriendGameInvite, createActiveOnlineGame, createFriendGameInvite, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame } from "./db";
 import { onlineRooms, onlineMatches, onlineTournaments, onlineTournamentPlayers, users } from "../drizzle/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
@@ -36,6 +36,8 @@ interface RoomData {
   mode: string;
   stakeTier: string;
   region: string;
+  isPrivate: boolean;
+  privateInviteeId: number | null;
   state: GameState | null;
   playerMap: { p1: string; p2: string }; // socket ids
   userMap: { p1: number; p2: number };   // user ids
@@ -78,6 +80,10 @@ export function getTotalOnlinePlayers(usersBySocket: Iterable<{ userId: number }
 export function isWaitingRoomExpired(createdAt: Date | string | number, now = Date.now()): boolean {
   const createdAtMs = new Date(createdAt).getTime();
   return Number.isFinite(createdAtMs) && now - createdAtMs >= ROOM_WAIT_TIMEOUT_MS;
+}
+
+export function canJoinPrivateRoom(isPrivate: boolean, privateInviteeId: number | null, userId: number): boolean {
+  return !isPrivate || privateInviteeId === userId;
 }
 
 const RECONNECT_GRACE_MS = 30_000; // 30 seconds grace period
@@ -174,6 +180,8 @@ function roomFromSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof getAct
     mode: "1v1",
     stakeTier: "amistoso",
     region: "BR",
+    isPrivate: false,
+    privateInviteeId: null,
     state,
     playerMap: { p1: "", p2: "" },
     userMap: { p1: snapshot.player1Id, p2: snapshot.player2Id },
@@ -335,10 +343,22 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
+    socket.on("friendship_event", (data: { targetUserId?: number; kind?: "request" | "accepted" | "declined" }) => {
+      const sender = socketToUser.get(socket.id);
+      const targetUserId = Number(data?.targetUserId);
+      if (!sender || !Number.isInteger(targetUserId) || targetUserId <= 0 || targetUserId === sender.userId) return;
+      const kind = data.kind === "accepted" || data.kind === "declined" ? data.kind : "request";
+      socketToUser.forEach((target, targetSocketId) => {
+        if (target.userId === targetUserId) io.to(targetSocketId).emit("friendship_updated", { kind, senderId: sender.userId, senderName: sender.userName });
+      });
+    });
+
     // ── Create Room ──
-    socket.on("create_room", async (data: { mode?: string; stakeTier?: string; region?: string; tournamentId?: number }, cb) => {
+    socket.on("create_room", async (data: { mode?: string; stakeTier?: string; region?: string; tournamentId?: number; privateInviteeId?: number }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
+      const privateInviteeId = Number.isInteger(data?.privateInviteeId) && Number(data.privateInviteeId) > 0 ? Number(data.privateInviteeId) : null;
+      if (privateInviteeId && !await areFriends(user.userId, privateInviteeId)) return cb?.({ error: "Convites privados exigem amizade confirmada" });
       const preferences = normalizeRoomPreferences(data);
 
       const code = genCode();
@@ -353,6 +373,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
         mode: preferences.mode,
         stakeTier: preferences.stakeTier,
         region: preferences.region,
+        isPrivate: Boolean(privateInviteeId),
+        privateInviteeId,
         state: null,
         playerMap: { p1: socket.id, p2: "" },
         userMap: { p1: user.userId, p2: 0 },
@@ -396,13 +418,21 @@ export function initSocketServer(httpServer: HttpServer): Server {
             mode: preferences.mode,
             stakeTier: preferences.stakeTier,
             region: preferences.region,
+            isPrivate: Boolean(privateInviteeId),
+            privateInviteeId,
             status: "waiting",
             tournamentId: data.tournamentId || null,
           });
         } catch (e: unknown) { console.error("[Socket] DB room insert error:", e); }
       }
 
-      cb?.({ success: true, code });
+      if (privateInviteeId) {
+        await createFriendGameInvite(user.userId, privateInviteeId, code);
+        socketToUser.forEach((target, targetSocketId) => {
+          if (target.userId === privateInviteeId) io.to(targetSocketId).emit("friend_game_invite", { roomCode: code, senderId: user.userId, senderName: user.userName, mode: preferences.mode, stakeTier: preferences.stakeTier, region: preferences.region });
+        });
+      }
+      cb?.({ success: true, code, isPrivate: Boolean(privateInviteeId) });
       broadcastWaitingRooms();
       console.log(`[Socket] Room ${code} created by ${user.userName}`);
     });
@@ -437,6 +467,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           mode: storedRoom.mode,
           stakeTier: storedRoom.stakeTier,
           region: storedRoom.region,
+          isPrivate: Boolean(storedRoom.isPrivate),
+          privateInviteeId: storedRoom.privateInviteeId ?? null,
           state: null,
           playerMap: { p1: socket.id, p2: "" },
           userMap: { p1: storedRoom.hostId, p2: 0 },
@@ -495,6 +527,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           mode: storedRoom.mode,
           stakeTier: storedRoom.stakeTier,
           region: storedRoom.region,
+          isPrivate: Boolean(storedRoom.isPrivate),
+          privateInviteeId: storedRoom.privateInviteeId ?? null,
           state: null,
           playerMap: { p1: "", p2: "" },
           userMap: { p1: storedRoom.hostId, p2: 0 },
@@ -513,6 +547,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
       if (room.guestSocket) return cb?.({ error: "Sala cheia" });
       if (room.hostUserId === user.userId) return cb?.({ error: "Não pode jogar contra si mesmo" });
+      if (!canJoinPrivateRoom(room.isPrivate, room.privateInviteeId, user.userId)) return cb?.({ error: "Esta sala privada não foi convidada para você" });
 
       const reservation = await (await db()).update(onlineRooms)
         .set({ guestId: user.userId, guestName: user.userName, status: "playing" })
@@ -522,6 +557,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           sql`${onlineRooms.guestId} IS NULL`,
         ));
       if (reservation[0].affectedRows !== 1) return cb?.({ error: "Sala cheia ou indisponível" });
+      if (room.isPrivate) await claimFriendGameInvite(user.userId, code);
 
       // Cancel waiting timeout — opponent joined
       if (room.waitingTimer) { clearTimeout(room.waitingTimer); room.waitingTimer = null; }
@@ -590,6 +626,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           mode,
           stakeTier: "amistoso",
           region: "BR",
+          isPrivate: false,
+          privateInviteeId: null,
           state: null,
           playerMap: { p1: opponent.socketId, p2: socket.id },
           userMap: { p1: opponent.userId, p2: user.userId },
@@ -958,13 +996,15 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
     // ── List active rooms ──
     socket.on("list_rooms", async (filters: RoomFilters = {}, cb) => {
+      const requester = socketToUser.get(socket.id);
+      if (!requester) return cb?.({ rooms: [], error: "Not authenticated" });
       try {
         const normalized = normalizeRoomPreferences({
           mode: filters.mode === "all" ? undefined : filters.mode,
           stakeTier: filters.stakeTier === "all" ? undefined : filters.stakeTier,
           region: filters.region === "all" ? undefined : filters.region,
         });
-        const clauses = [eq(onlineRooms.status, "waiting")];
+        const clauses = [eq(onlineRooms.status, "waiting"), sql`(${onlineRooms.isPrivate} = false OR ${onlineRooms.privateInviteeId} = ${requester.userId})`];
         if (filters.mode && filters.mode !== "all") clauses.push(eq(onlineRooms.mode, normalized.mode));
         if (filters.stakeTier && filters.stakeTier !== "all") clauses.push(eq(onlineRooms.stakeTier, normalized.stakeTier));
         if (filters.region && filters.region !== "all") clauses.push(eq(onlineRooms.region, normalized.region));
@@ -974,6 +1014,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           mode: onlineRooms.mode,
           stakeTier: onlineRooms.stakeTier,
           region: onlineRooms.region,
+          isPrivate: onlineRooms.isPrivate,
           createdAt: onlineRooms.createdAt,
         }).from(onlineRooms).where(and(...clauses));
         const expiredRooms = storedRooms.filter(room => isWaitingRoomExpired(room.createdAt));
@@ -1365,7 +1406,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           }
 
           // Cleanup waiting rooms (no game started yet)
-          if (!room.state && room.hostSocket === socket.id) {
+          if (!room.state && !room.guestSocket && room.hostSocket === socket.id) {
             rooms.delete(roomCode);
             userToRoom.delete(room.hostUserId);
             broadcastWaitingRooms();

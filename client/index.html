@@ -1904,7 +1904,7 @@ body, .scr {
     <button class="hfb" onclick="show('regional-scr');renderRegional()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg> Regional</button>
     <button class="hfb" onclick="toast('Conquistas em breve, tchê! 🏆','info')" style="position:relative"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg> Conquistas</button>
     <button class="hfb" onclick="show('shop-scr');loadServerPurchases();renderShop()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> Loja</button>
-    <button class="hfb" onclick="toast('Amigos em breve, tchê! 🤝','info')" style="position:relative"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Amigos</button>
+    <button class="hfb" onclick="openFriendsScreen()" style="position:relative"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Amigos</button>
     <button class="hfb" onclick="openModal('m-auth');renderAuthModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Conta</button>
     <button class="hfb" onclick="show('history-scr');renderHistory()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg> Histórico</button>
     <button class="hfb" onclick="show('tournament-scr');renderTournament()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg> Torneio</button>
@@ -1913,6 +1913,17 @@ body, .scr {
     <button class="hfb" onclick="toggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
     <button class="hfb" id="admin-btn" style="display:none;background:#e94560;color:#fff;border-color:#e94560" onclick="show('admin-scr');loadAdminSponsors()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Admin</button>
   </div>
+</div>
+
+<!-- ══ FRIENDS ══ -->
+<div id="friends-scr" class="scr" style="background:linear-gradient(180deg,#14223d 0%,#173d33 100%);overflow-y:auto;justify-content:flex-start">
+  <div class="g-hdr"><button class="back-btn" onclick="show('home')" style="background:transparent;border:none;color:rgba(255,255,255,.75);font-size:.82rem;cursor:pointer">← Voltar</button><div style="flex:1;text-align:center;font-family:Georgia,serif;font-size:.9rem;font-weight:700;color:#f5d77c">🤝 Amigos do Pago</div><button onclick="loadFriendsData()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:7px;padding:.24rem .45rem;font-size:.65rem;cursor:pointer">↻</button></div>
+  <main style="width:min(720px,calc(100% - 1.4rem));margin:.85rem auto 2rem">
+    <section style="background:rgba(255,255,255,.075);border:1px solid rgba(245,215,124,.26);border-radius:13px;padding:.78rem;margin-bottom:.65rem"><div style="font-family:Georgia,serif;color:#f5d77c;font-weight:700;font-size:.83rem">Encontrar jogador</div><div style="display:flex;gap:.45rem;margin-top:.55rem"><input id="friend-search" maxlength="80" placeholder="Digite pelo menos 2 letras do nome" onkeydown="if(event.key==='Enter')searchFriends()" style="flex:1;min-width:0;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.18);border-radius:8px;color:#fff;padding:.52rem;font-size:.72rem"><button onclick="searchFriends()" style="background:#3675ba;border:0;border-radius:8px;color:#fff;font-weight:800;padding:.45rem .65rem;cursor:pointer">Buscar</button></div><div id="friend-search-results" style="margin-top:.55rem"></div></section>
+    <section id="friend-incoming-card" style="display:none;background:rgba(244,180,63,.12);border:1px solid rgba(244,180,63,.36);border-radius:13px;padding:.78rem;margin-bottom:.65rem"><div style="font-family:Georgia,serif;color:#f5d77c;font-weight:700;font-size:.83rem">Solicitações recebidas</div><div id="friend-incoming-list" style="margin-top:.45rem"></div></section>
+    <section id="friend-invites-card" style="display:none;background:rgba(54,117,186,.18);border:1px solid rgba(132,190,255,.35);border-radius:13px;padding:.78rem;margin-bottom:.65rem"><div style="font-family:Georgia,serif;color:#a9d6ff;font-weight:700;font-size:.83rem">Convites para partida</div><div id="friend-invites-list" style="margin-top:.45rem"></div></section>
+    <section style="background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.13);border-radius:13px;padding:.78rem"><div style="font-family:Georgia,serif;color:#f5d77c;font-weight:700;font-size:.83rem">Minha lista</div><div id="friends-list" style="margin-top:.45rem"></div></section>
+  </main>
 </div>
 
 <!-- ══ ONLINE LOBBY (Socket.io) ══ -->
@@ -3143,7 +3154,6 @@ function startGame(ch){
   // Remove variant badge se existir
   const vb=document.getElementById('variant-badge');if(vb)vb.remove();
   show('game');SFX.deal();
-  setMyPresence('playing', (typeof sioRoom !== 'undefined' ? sioRoom : '') || '');
   // Coach mode
   if(CFG&&CFG.coachMode){
     const ov=document.getElementById('coach-overlay');if(ov)ov.classList.remove('hidden');
@@ -5561,98 +5571,92 @@ function renderAuthModal() {
 // ╔══════════════════════════════════════════════════════════════╗
 //  FRIENDS SYSTEM
 // ╚══════════════════════════════════════════════════════════════╝
-function loadFriends() {
-  try { return JSON.parse(localStorage.getItem('truco_friends') || '[]'); } catch(e) { return []; }
-}
-function saveFriends(list) {
-  try { localStorage.setItem('truco_friends', JSON.stringify(list)); } catch(e) {}
+var _friendsData = { friends: [], incoming: [], invites: [] };
+
+function openFriendsScreen() {
+  var user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
+  if (!user) { showLoginRequiredModal(); return; }
+  show('friends-scr');
+  loadFriendsData();
 }
 
-// Online presence via localStorage (shared tab)
-function setMyPresence(status, roomCode = '') {
+async function loadFriendsData() {
   try {
-    localStorage.setItem('truco_presence_' + TT_P.name, JSON.stringify({
-      name: TT_P.name, status, roomCode, elo: getMyElo(), ts: Date.now()
-    }));
-  } catch(e) {}
+    _friendsData = await trpcQuery('friends.overview');
+    renderFriends();
+  } catch (error) {
+    toast('Não foi possível carregar seus amigos.', 'warn');
+  }
 }
 
-function getPresence(name) {
+async function searchFriends() {
+  var input = document.getElementById('friend-search');
+  var target = document.getElementById('friend-search-results');
+  var query = (input && input.value || '').trim();
+  if (query.length < 2) { toast('Digite ao menos 2 letras para buscar.', 'info'); return; }
+  target.innerHTML = '<div style="font-size:.68rem;color:rgba(255,255,255,.55)">Buscando jogadores...</div>';
   try {
-    const d = JSON.parse(localStorage.getItem('truco_presence_' + name) || 'null');
-    if (!d) return null;
-    if (Date.now() - d.ts > 60000) return { ...d, status: 'offline' }; // 1min timeout
-    return d;
-  } catch(e) { return null; }
+    var users = await trpcQuery('friends.search', { query: query });
+    target.innerHTML = users.length ? users.map(function(friend) {
+      return '<div class="friend-row"><span class="friend-av">🤠</span><div class="friend-info"><div class="friend-name">' + escapeRoomText(friend.name) + '</div><div class="friend-status offline">' + escapeRoomText([friend.city, friend.state].filter(Boolean).join(' · ') || 'Jogador do Truco Tchê') + '</div></div><button onclick="sendFriendRequest(' + Number(friend.id) + ')" style="background:#3675ba;border:0;border-radius:7px;color:#fff;padding:.32rem .48rem;font-weight:800;font-size:.62rem;cursor:pointer">Adicionar</button></div>';
+    }).join('') : '<div style="font-size:.68rem;color:rgba(255,255,255,.55);padding:.25rem">Nenhum jogador encontrado.</div>';
+  } catch (error) { target.innerHTML = '<div style="font-size:.68rem;color:#f7a0a0">Busca indisponível. Tente novamente.</div>'; }
 }
 
-function addFriend() {
-  const name = document.getElementById('friend-search').value.trim();
-  if (!name) return;
-  if (name === TT_P.name) { toast('Você não pode se adicionar', 'info'); return; }
-  const friends = loadFriends();
-  if (friends.find(f => f === name)) { toast('Já é seu amigo', 'info'); return; }
-  friends.push(name);
-  saveFriends(friends);
-  document.getElementById('friend-search').value = '';
-  renderFriends();
-  toast(`${name} adicionado!`, 'win');
-}
-
-function removeFriend(name) {
-  const friends = loadFriends().filter(f => f !== name);
-  saveFriends(friends);
-  renderFriends();
-}
-
-function inviteFriend(name, roomCode) {
-  // Store invite in localStorage for friend to pick up
+async function sendFriendRequest(userId) {
   try {
-    localStorage.setItem('truco_invite_' + name, JSON.stringify({
-      from: TT_P.name, roomCode, ts: Date.now()
-    }));
-    toast(`Convite enviado para ${name}!`, 'info');
-  } catch(e) {}
+    var result = await trpcMutation('friends.sendRequest', { userId: Number(userId) });
+    if (sio && sioAuthenticated) sio.emit('friendship_event', { targetUserId: Number(userId), kind: result.status === 'accepted' ? 'accepted' : 'request' });
+    toast(result.status === 'accepted' ? 'Amizade confirmada!' : 'Solicitação enviada!', 'win');
+    loadFriendsData();
+  } catch (error) { toast('Não foi possível enviar a solicitação.', 'warn'); }
 }
 
-function checkInvites() {
+async function respondFriendRequest(friendshipId, requesterId, accept) {
   try {
-    const inv = JSON.parse(localStorage.getItem('truco_invite_' + TT_P.name) || 'null');
-    if (!inv) return;
-    if (Date.now() - inv.ts > 120000) { localStorage.removeItem('truco_invite_' + TT_P.name); return; }
-    localStorage.removeItem('truco_invite_' + TT_P.name);
-    if (confirm(`${inv.from} te convidou para uma partida! Entrar na sala ${inv.roomCode}?`)) {
-      show('online-lobby');
-      document.getElementById('join-code').value = inv.roomCode;
-      document.getElementById('join-form').style.display = 'block';
-      joinRoom();
-    }
-  } catch(e) {}
+    await trpcMutation('friends.respond', { friendshipId: Number(friendshipId), accept: Boolean(accept) });
+    if (sio && sioAuthenticated) sio.emit('friendship_event', { targetUserId: Number(requesterId), kind: accept ? 'accepted' : 'declined' });
+    toast(accept ? 'Amizade aceita!' : 'Solicitação recusada.', accept ? 'win' : 'info');
+    loadFriendsData();
+  } catch (error) { toast('Solicitação indisponível.', 'warn'); }
+}
+
+async function removeFriend(friendId) {
+  if (!confirm('Remover este amigo da sua lista?')) return;
+  try { await trpcMutation('friends.remove', { userId: Number(friendId) }); loadFriendsData(); } catch (error) { toast('Não foi possível remover o amigo.', 'warn'); }
+}
+
+async function acceptFriendInvite(roomCode) {
+  try {
+    ensureSocket();
+    show('online-lobby');
+    setOnlineLobbyMode('browse');
+    joinActiveRoom(roomCode);
+  } catch (error) { toast('Convite expirado ou indisponível.', 'warn'); loadFriendsData(); }
+}
+
+function inviteFriend(friendId) {
+  var friend = (_friendsData.friends || []).find(function(item) { return Number(item.id) === Number(friendId); });
+  var friendName = friend ? friend.name : 'seu amigo';
+  ensureSocket();
+  if (!sio || !sioConnected || !sioAuthenticated) { toast('Conectando...', 'info'); waitForAuth(function() { inviteFriend(friendId); }); return; }
+  openOnlineLobby();
+  socketCreateRoom(Number(friendId), friendName);
 }
 
 function renderFriends() {
-  const friends = loadFriends();
-  const list = document.getElementById('friends-list');
-  if (!friends.length) {
-    list.innerHTML = '<div style="color:var(--txt3);font-style:italic;font-size:.78rem;text-align:center;padding:1rem">Nenhum amigo adicionado ainda.<br>Digite o nome e clique em + Adicionar.</div>';
-    return;
-  }
-  list.innerHTML = friends.map(name => {
-    const p = getPresence(name);
-    const status = p ? p.status : 'offline';
-    const dotCls = status === 'online' ? 'on' : status === 'playing' ? 'play' : 'off';
-    const statusTxt = status === 'online' ? 'Online' : status === 'playing' ? `Jogando • ${p?.roomCode||''}` : 'Offline';
-    const canInvite = status === 'online' && (typeof sioRoom !== 'undefined' && sioRoom);
-    return `<div class="friend-row">
-      <span class="friend-av">🤠</span>
-      <div class="friend-info">
-        <div class="friend-name">${name}</div>
-        <div class="friend-status ${status}"><span class="online-dot ${dotCls}"></span>${statusTxt}</div>
-      </div>
-      ${canInvite ? `<button class="invite-btn" onclick="inviteFriend('${name}','${typeof sioRoom !== 'undefined' ? sioRoom : ''}')">Convidar</button>` : ''}
-      <button onclick="removeFriend('${name}')" style="background:none;border:none;color:var(--txt3);cursor:pointer;padding:.2rem .5rem;font-size:.8rem">✕</button>
-    </div>`;
-  }).join('');
+  var data = _friendsData || { friends: [], incoming: [], invites: [] };
+  var list = document.getElementById('friends-list');
+  var incomingCard = document.getElementById('friend-incoming-card');
+  var incomingList = document.getElementById('friend-incoming-list');
+  var inviteCard = document.getElementById('friend-invites-card');
+  var inviteList = document.getElementById('friend-invites-list');
+  if (incomingCard) incomingCard.style.display = data.incoming.length ? 'block' : 'none';
+  if (incomingList) incomingList.innerHTML = data.incoming.map(function(request) { return '<div class="friend-row"><span class="friend-av">🤠</span><div class="friend-info"><div class="friend-name">' + escapeRoomText(request.requesterName) + '</div><div class="friend-status offline">' + escapeRoomText([request.city, request.state].filter(Boolean).join(' · ') || 'Quer ser seu amigo') + '</div></div><button onclick="respondFriendRequest(' + Number(request.id) + ',' + Number(request.requesterId) + ',true)" style="background:#3b9956;border:0;color:#fff;border-radius:7px;padding:.3rem .45rem;font-size:.6rem;font-weight:800;cursor:pointer">Aceitar</button><button onclick="respondFriendRequest(' + Number(request.id) + ',' + Number(request.requesterId) + ',false)" style="background:transparent;border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:7px;padding:.3rem .45rem;font-size:.6rem;cursor:pointer">Recusar</button></div>'; }).join('');
+  if (inviteCard) inviteCard.style.display = data.invites.length ? 'block' : 'none';
+  if (inviteList) inviteList.innerHTML = data.invites.map(function(invite) { return '<div class="friend-row"><span class="friend-av">🃏</span><div class="friend-info"><div class="friend-name">' + escapeRoomText(invite.senderName) + ' te desafiou</div><div class="friend-status online">Sala privada · ' + escapeRoomText(roomStakeLabel(invite.stakeTier)) + ' · ' + escapeRoomText(roomRegionLabel(invite.region)) + '</div></div><button onclick="acceptFriendInvite(\'' + escapeRoomText(invite.roomCode) + '\')" style="background:#3675ba;border:0;color:#fff;border-radius:7px;padding:.3rem .45rem;font-size:.6rem;font-weight:800;cursor:pointer">Entrar</button></div>'; }).join('');
+  if (!list) return;
+  list.innerHTML = data.friends.length ? data.friends.map(function(friend) { return '<div class="friend-row"><span class="friend-av">🤠</span><div class="friend-info"><div class="friend-name">' + escapeRoomText(friend.name) + '</div><div class="friend-status online">Amigo · ' + escapeRoomText([friend.city, friend.state].filter(Boolean).join(' · ') || 'Truco Tchê') + '</div></div><button onclick="inviteFriend(' + Number(friend.id) + ')" style="background:#3675ba;border:0;color:#fff;border-radius:7px;padding:.32rem .48rem;font-size:.62rem;font-weight:800;cursor:pointer">Desafiar</button><button onclick="removeFriend(' + Number(friend.id) + ')" style="background:none;border:none;color:rgba(255,255,255,.55);cursor:pointer;padding:.2rem .35rem;font-size:.8rem">✕</button></div>'; }).join('') : '<div style="color:rgba(255,255,255,.55);font-style:italic;font-size:.72rem;text-align:center;padding:1rem">Ainda não há amigos. Busque um jogador para enviar sua primeira solicitação.</div>';
 }
 
 // ╔══════════════════════════════════════════════════════════════╗
@@ -6787,14 +6791,6 @@ document.addEventListener('DOMContentLoaded', () => {
   _coachMode = CFG.coachMode || false;
   applyShopTheme();
 
-  // Poll for friend invites every 15s
-  checkInvites();
-  setInterval(checkInvites, 15000);
-
-  // Set presence
-  setMyPresence('online');
-  setInterval(() => setMyPresence(TT_G.phase === 'playing' ? 'playing' : 'online', (typeof sioRoom !== 'undefined' ? sioRoom : '') || ''), 30000);
-
   // Add Capacitor button to settings
   setTimeout(() => {
     const sheet = document.querySelector('.settings-sheet');
@@ -7539,6 +7535,17 @@ function ensureSocket() {
     var panel = document.getElementById('active-rooms-panel');
     if (panel && panel.style.display !== 'none') renderActiveRooms(data?.rooms || []);
     renderHomeActiveRooms(data?.rooms || []);
+  });
+
+  sio.on('friend_game_invite', function(invite) {
+    toast((invite.senderName || 'Um amigo') + ' enviou um convite privado!', 'info');
+    if (document.getElementById('friends-scr') && document.getElementById('friends-scr').classList.contains('on')) loadFriendsData();
+  });
+
+  sio.on('friendship_updated', function(event) {
+    var message = event.kind === 'request' ? (event.senderName || 'Um jogador') + ' enviou uma solicitação de amizade.' : event.kind === 'accepted' ? (event.senderName || 'Um jogador') + ' aceitou sua amizade!' : (event.senderName || 'Um jogador') + ' recusou a solicitação de amizade.';
+    toast(message, event.kind === 'accepted' ? 'win' : 'info');
+    if (document.getElementById('friends-scr') && document.getElementById('friends-scr').classList.contains('on')) loadFriendsData();
   });
 
   // ── Game Events ──
@@ -8324,11 +8331,11 @@ function joinActiveRoom(code) {
   });
 }
 
-function socketCreateRoom() {
+function socketCreateRoom(privateInviteeId, privateInviteeName) {
   initializeRoomFilterControls();
   if (!sio || !sioConnected || !sioAuthenticated) {
     toast('Conectando...', 'info');
-    waitForAuth(function() { socketCreateRoom(); });
+    waitForAuth(function() { socketCreateRoom(privateInviteeId, privateInviteeName); });
     return;
   }
   var createMode = document.getElementById('room-create-mode');
@@ -8338,6 +8345,7 @@ function socketCreateRoom() {
     mode: createMode ? createMode.value : '1v1',
     stakeTier: createStake ? createStake.value : 'amistoso',
     region: createRegion ? createRegion.value : '40',
+    privateInviteeId: privateInviteeId || undefined,
   }, (res) => {
     if (res.error) { toast(res.error, 'warn'); return; }
     setOnlineLobbyMode('waiting');
@@ -8357,6 +8365,7 @@ function socketCreateRoom() {
     var owSubMsg = document.getElementById('ow-sub-msg');
     if (owSubMsg) owSubMsg.textContent = 'A sala ficará aberta por até 15 minutos';
     startRoomCountdown(15 * 60 * 1000);
+    if (res.isPrivate) toast('Sala privada criada. Convite enviado para ' + (privateInviteeName || 'seu amigo') + '!', 'win');
   });
 }
 

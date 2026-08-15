@@ -62,3 +62,15 @@
 - [x] Expirar salas aguardando de forma persistida sem depender de timer em memória ou reinício.
 - [x] Validar recuperação de negociações pendentes por snapshot: Truco e Envido em duas instâncias, Flor coberta na execução do restaurador de interface.
 - [x] Criar cobertura permanente de retries do motor e smoke tests reproduzíveis de conflito e entrada atômica em sala.
+- [x] Criar relações de amizade com solicitação, aceite, recusa e remoção protegidos.
+- [x] Criar convites diretos persistidos para salas privadas entre amigos.
+- [x] Integrar notificações em tempo real de amizade e convite no Socket.IO.
+- [x] Construir a lista de amigos, busca de jogadores e controles de convite na interface.
+- [x] Validar o fluxo de amizade e sala privada com múltiplos clientes, testes e build.
+- [x] Corrigir a autorização do convidado na entrada de sala privada e repetir o smoke test com terceiro não convidado.
+- [x] Remover referências remanescentes ao protótipo local de amigos para evitar erros de JavaScript.
+- [x] Confirmar convite privado somente após a entrada bem-sucedida do amigo na sala.
+- [x] Corrigir o início real de partida privada após a entrada do amigo convidado.
+- [x] Emitir notificações Socket.IO de solicitação recebida e amizade aceita ou recusada.
+- [x] Criar smoke test permanente do fluxo completo: amizade, convite, bloqueio, entrada e `game_started` privado.
+- [x] Preservar sala privada já ocupada se o anfitrião desconectar durante o agendamento de início.
