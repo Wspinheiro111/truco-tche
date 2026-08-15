@@ -6943,6 +6943,7 @@ async function renderOnlineHistory() {
       const generatedAt = report.generatedAt ? new Date(report.generatedAt).toLocaleString('pt-BR') : 'agora';
       const execution = report.execution || { passed: 0, total: 0, overall: 'failed', checks: [] };
       const executionColor = execution.overall === 'passed' ? '#91efa9' : '#ff9a9a';
+      const history = Array.isArray(report.history) ? report.history : [];
       const failedChecks = (execution.checks || []).filter(function(check) { return !check.passed; });
       const hasFailedExecution = execution.overall !== 'passed' || failedChecks.length > 0;
       const statusTitle = hasFailedExecution ? 'Verificação requer atenção' : 'Motor de Regras Validado';
@@ -6969,7 +6970,17 @@ async function renderOnlineHistory() {
         return '<div style="margin:.48rem 0"><div style="display:flex;justify-content:space-between;gap:.7rem;color:rgba(255,255,255,.8);font-size:.68rem;margin-bottom:.24rem"><span>' + title + '</span><strong style="color:' + (percent === 100 ? '#91efa9' : '#ff9a9a') + '">' + passed + '/' + total + ' · ' + percent + '%</strong></div><div role="progressbar" aria-label="Execução de checks de ' + title + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + percent + '" style="height:6px;background:rgba(255,255,255,.1);border-radius:999px;overflow:hidden"><div style="width:' + percent + '%;height:100%;background:linear-gradient(90deg,' + accent + ',' + executionColor + ');border-radius:inherit;transition:width 220ms cubic-bezier(.23,1,.32,1)"></div></div></div>';
       }).join('');
       const executionRows = (execution.checks || []).map(function(check) { return '<li style="display:flex;gap:.48rem;align-items:flex-start;margin:.35rem 0;color:rgba(255,255,255,.82);font-size:.72rem' + (check.passed ? '' : ';background:rgba(255,72,93,.13);border:1px solid rgba(255,143,156,.5);border-radius:7px;padding:.42rem .48rem') + '"><span style="color:' + (check.passed ? '#91efa9' : '#ff9a9a') + '">' + (check.passed ? '✓' : '✕') + '</span><span>' + escapeRoomText(check.title) + (check.passed ? '' : ' — ' + escapeRoomText(check.detail || 'Falhou')) + '</span></li>'; }).join('');
+      const historyRows = history.slice(0, 10).map(function(item) {
+        const isFailure = item.status === 'failed';
+        const failed = Array.isArray(item.failedChecks) ? item.failedChecks : [];
+        const executionId = Number(item.id) || 0;
+        const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString('pt-BR') : 'agora';
+        const detail = isFailure && failed.length ? failed.map(function(check) { return escapeRoomText(check.group || 'regra') + ': ' + escapeRoomText(check.title || 'Check reprovado'); }).join(' · ') : 'Nenhuma falha registrada';
+        return '<li style="padding:.62rem 0;border-top:1px solid rgba(255,255,255,.09)"><div style="display:flex;justify-content:space-between;gap:.6rem;align-items:flex-start"><div style="min-width:0"><div style="color:' + (isFailure ? '#ffb6bf' : '#9cefb0') + ';font-size:.72rem;font-weight:800">' + (isFailure ? '⚠ Falha #' + executionId : '✓ Aprovada #' + executionId) + '</div><div style="color:rgba(255,255,255,.58);font-size:.64rem;margin-top:.18rem">' + escapeRoomText(createdAt) + ' · ' + Number(item.passedChecks || 0) + '/' + Number(item.totalChecks || 0) + ' checks · ' + escapeRoomText(item.executedByName || 'Administrador') + '</div><div style="color:rgba(255,255,255,.78);font-size:.66rem;line-height:1.35;margin-top:.22rem;overflow-wrap:anywhere">' + detail + '</div></div>' + (isFailure && executionId ? '<button type="button" onclick="exportRulesFailureCSV(' + executionId + ')" style="flex:0 0 auto;background:rgba(255,232,235,.12);border:1px solid rgba(255,158,170,.55);border-radius:7px;color:#ffd8dd;padding:.36rem .5rem;font-size:.62rem;font-weight:800;cursor:pointer">⇩ CSV</button>' : '') + '</div></li>';
+      }).join('');
+      const historySection = '<section aria-label="Histórico de autoverificações" style="background:rgba(18,23,39,.72);border:1px solid rgba(148,173,222,.32);border-radius:14px;padding:.9rem;margin:.8rem 0"><div style="display:flex;justify-content:space-between;gap:.6rem;align-items:center"><div><div style="font-family:Georgia,serif;color:#d8e6ff;font-size:1rem;font-weight:700">Histórico de execuções</div><div style="color:rgba(255,255,255,.56);font-size:.68rem;margin-top:.2rem">Últimas verificações persistidas para auditoria administrativa.</div></div><span style="color:#bcd3ff;font-size:.68rem;font-weight:800">' + history.length + ' registro' + (history.length === 1 ? '' : 's') + '</span></div><ul style="list-style:none;padding:0;margin:.58rem 0 0">' + (historyRows || '<li style="color:rgba(255,255,255,.56);font-size:.72rem;padding:.5rem 0">Nenhuma execução persistida ainda.</li>') + '</ul></section>';
       cards = failureAlert + coverageChart + '<section style="background:rgba(8,31,29,.58);border:1px solid ' + executionColor + ';border-radius:14px;padding:.9rem;margin:.8rem 0"><div style="display:flex;gap:.8rem;align-items:center"><div role="img" aria-label="Autoverificação aprovada em ' + executionPercent + '%" style="width:54px;height:54px;flex:0 0 54px;border-radius:50%;background:conic-gradient(' + executionColor + ' 0 ' + executionPercent + '%,rgba(255,255,255,.1) ' + executionPercent + '% 100%);display:grid;place-items:center"><div style="width:42px;height:42px;border-radius:50%;background:#10211f;display:flex;align-items:center;justify-content:center;color:' + executionColor + ';font-size:.68rem;font-weight:800">' + executionPercent + '%</div></div><div style="min-width:0;flex:1"><div style="font-family:Georgia,serif;color:' + executionColor + ';font-size:1.02rem;font-weight:700">Autoverificação em tempo real</div><div style="color:rgba(255,255,255,.58);font-size:.7rem;margin-top:.2rem">Checks determinísticos executados ao abrir este relatório.</div></div><strong style="color:' + executionColor + ';font-size:1.05rem">' + Number(execution.passed || 0) + '/' + Number(execution.total || 0) + '</strong></div><div style="margin-top:.7rem">' + executionGroupRows + '</div><ul style="list-style:none;padding:0;margin:.7rem 0 0">' + executionRows + '</ul></section>' + cards;
+      cards += historySection;
       target.innerHTML = '<section style="background:linear-gradient(135deg,' + (hasFailedExecution ? 'rgba(111,31,45,.78),rgba(76,23,43,.78)' : 'rgba(40,112,91,.72),rgba(20,55,77,.72)') + ');border:1px solid ' + (hasFailedExecution ? 'rgba(255,143,156,.66)' : 'rgba(112,216,180,.5)') + ';border-radius:16px;padding:1rem"><div style="display:flex;justify-content:space-between;gap:.7rem;align-items:flex-start"><div><div style="font-family:Georgia,serif;color:' + (hasFailedExecution ? '#ffe2e6' : '#d6f6da') + ';font-size:1.1rem;font-weight:700">' + statusTitle + '</div><div style="color:rgba(255,255,255,.72);font-size:.7rem;margin-top:.3rem">' + statusDescription + '</div></div><span style="color:' + (hasFailedExecution ? '#ffb0ba' : '#a5f4b9') + ';font-size:1.35rem" aria-hidden="true">' + (hasFailedExecution ? '⚠' : '🛡️') + '</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.9rem"><div style="background:rgba(0,0,0,.18);border-radius:10px;padding:.55rem;text-align:center"><div style="color:#fff;font-weight:800;font-size:1.15rem">' + Number(summary.covered || 0) + '</div><div style="color:rgba(255,255,255,.62);font-size:.58rem;text-transform:uppercase">Cenários</div></div><div style="background:rgba(0,0,0,.18);border-radius:10px;padding:.55rem;text-align:center"><div style="color:#fff;font-weight:800;font-size:1.15rem">' + Number(summary.categories || 0) + '</div><div style="color:rgba(255,255,255,.62);font-size:.58rem;text-transform:uppercase">Grupos</div></div><div style="background:rgba(0,0,0,.18);border-radius:10px;padding:.55rem;text-align:center"><div style="color:#fff;font-weight:800;font-size:.82rem;padding-top:.14rem">' + escapeRoomText(summary.runner || 'Vitest') + '</div><div style="color:rgba(255,255,255,.62);font-size:.58rem;text-transform:uppercase">Executor</div></div></div></section>' + cards + '<div style="text-align:center;color:rgba(255,255,255,.4);font-size:.62rem;padding:.55rem 0">Relatório consultado em ' + escapeRoomText(generatedAt) + '. Execute a suíte de CI para validar uma nova revisão de código.</div>';
       if (hasFailedExecution) {
         const alert = document.getElementById('rules-test-failure-alert');
@@ -6980,6 +6991,101 @@ async function renderOnlineHistory() {
     }
   }
   window.loadRulesTestReport = loadRulesTestReport;
+
+  var _rulesFailureMonitor = null;
+  var _rulesFailurePollInFlight = false;
+
+  function getRulesFailureMonitorUser() {
+    return window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
+  }
+
+  function isRulesFailureMonitorAdmin(user) {
+    return !!(user && (user.role === 'admin' || (user.email && user.email.toLowerCase() === 'gerentewilliam.pinheiro@gmail.com')));
+  }
+
+  function getRulesFailureSeenKey() {
+    const user = getRulesFailureMonitorUser();
+    return user && user.id ? 'truco_rules_failure_seen_' + user.id : null;
+  }
+
+  function getRulesFailureSeenId() {
+    const key = getRulesFailureSeenKey();
+    return key ? Number(localStorage.getItem(key) || 0) || 0 : 0;
+  }
+
+  function markRulesFailureSeen(executionId) {
+    const key = getRulesFailureSeenKey();
+    if (!key || !Number.isInteger(Number(executionId))) return;
+    localStorage.setItem(key, String(Math.max(getRulesFailureSeenId(), Number(executionId))));
+  }
+
+  function handleRulesTestFailureAlert(event) {
+    const executionId = Number(event && event.executionId) || 0;
+    if (executionId && executionId <= getRulesFailureSeenId()) return;
+    if (executionId) markRulesFailureSeen(executionId);
+    const failed = Array.isArray(event && event.failedChecks) ? event.failedChecks : [];
+    const first = failed[0] && failed[0].title ? ': ' + failed[0].title : '';
+    toast('⚠️ Falha nas regras detectada' + first, 'warn');
+    const testsScreen = document.getElementById('rules-tests-scr');
+    if (testsScreen && testsScreen.classList.contains('on')) loadRulesTestReport();
+  }
+
+  async function pollRulesTestFailures() {
+    if (_rulesFailurePollInFlight || !isRulesFailureMonitorAdmin(getRulesFailureMonitorUser())) return;
+    _rulesFailurePollInFlight = true;
+    try {
+      const failures = await trpcQuery('rulesTests.latestFailures', { afterId: getRulesFailureSeenId() });
+      (Array.isArray(failures) ? failures : []).forEach(function(failure) {
+        handleRulesTestFailureAlert({
+          executionId: failure.id,
+          passed: failure.passedChecks,
+          total: failure.totalChecks,
+          failedChecks: failure.failedChecks,
+          createdAt: failure.createdAt,
+        });
+      });
+    } catch (_) {
+      // O Socket.IO continua cobrindo a instância local; a próxima consulta tenta novamente.
+    } finally {
+      _rulesFailurePollInFlight = false;
+    }
+  }
+
+  function startRulesFailureMonitor() {
+    if (!isRulesFailureMonitorAdmin(getRulesFailureMonitorUser()) || _rulesFailureMonitor) return;
+    pollRulesTestFailures();
+    _rulesFailureMonitor = setInterval(pollRulesTestFailures, 3000);
+  }
+
+  function stopRulesFailureMonitor() {
+    if (_rulesFailureMonitor) clearInterval(_rulesFailureMonitor);
+    _rulesFailureMonitor = null;
+  }
+  window.startRulesFailureMonitor = startRulesFailureMonitor;
+  window.stopRulesFailureMonitor = stopRulesFailureMonitor;
+
+  async function exportRulesFailureCSV(executionId) {
+    if (!Number.isInteger(Number(executionId)) || Number(executionId) <= 0) {
+      toast('Diagnóstico inválido para exportação.', 'warn');
+      return;
+    }
+    try {
+      const data = await trpcQuery('rulesTests.exportFailure', { executionId: Number(executionId) });
+      const blob = new Blob(['\uFEFF' + String(data.csv || '')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = String(data.filename || 'diagnostico-regras.csv');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast('Diagnóstico exportado em CSV.', 'win');
+    } catch (error) {
+      toast(error && error.message ? error.message : 'Não foi possível exportar o diagnóstico.', 'warn');
+    }
+  }
+  window.exportRulesFailureCSV = exportRulesFailureCSV;
 
   // ─── Local user state ───
   let localUser = JSON.parse(localStorage.getItem('truco_local_user') || 'null');
@@ -7392,6 +7498,11 @@ async function renderOnlineHistory() {
   // Expor globalmente para outros scripts
   window.trpcMutation = trpcMutation;
   window.trpcQuery = trpcQuery;
+  window.loadRulesTestReport = loadRulesTestReport;
+  window.exportRulesFailureCSV = exportRulesFailureCSV;
+  window.handleRulesTestFailureAlert = handleRulesTestFailureAlert;
+  window.startRulesFailureMonitor = startRulesFailureMonitor;
+  window.stopRulesFailureMonitor = stopRulesFailureMonitor;
   window.localUser = localUser;
   window.saveLocalUser = function(u) {
     localUser = u;
@@ -7608,6 +7719,10 @@ function ensureSocket() {
     var message = event.kind === 'request' ? (event.senderName || 'Um jogador') + ' enviou uma solicitação de amizade.' : event.kind === 'accepted' ? (event.senderName || 'Um jogador') + ' aceitou sua amizade!' : (event.senderName || 'Um jogador') + ' recusou a solicitação de amizade.';
     toast(message, event.kind === 'accepted' ? 'win' : 'info');
     if (document.getElementById('friends-scr') && document.getElementById('friends-scr').classList.contains('on')) loadFriendsData();
+  });
+
+  sio.on('rules_test_failure', function(event) {
+    if (typeof window.handleRulesTestFailureAlert === 'function') window.handleRulesTestFailureAlert(event);
   });
 
   // ── Game Events ──
@@ -9246,7 +9361,7 @@ var _adminDeleteUserId = null;
 // Show admin button if user is admin
 function checkAdminAccess() {
   const user = window.localUser || (typeof AUTH !== 'undefined' ? AUTH.user : null);
-  if (!user) return;
+  if (!user) { if (typeof window.stopRulesFailureMonitor === 'function') window.stopRulesFailureMonitor(); return; }
   const btn = document.getElementById('admin-btn');
   if (!btn) return;
   // Verifica role=admin OU email do admin principal
@@ -9263,6 +9378,8 @@ function checkAdminAccess() {
     btn.insertAdjacentElement('afterend', rulesBtn);
   }
   if (rulesBtn) rulesBtn.style.display = isAdmin ? '' : 'none';
+  if (isAdmin && typeof window.startRulesFailureMonitor === 'function') window.startRulesFailureMonitor();
+  else if (!isAdmin && typeof window.stopRulesFailureMonitor === 'function') window.stopRulesFailureMonitor();
 }
 
 // Switch admin tabs

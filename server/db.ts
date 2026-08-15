@@ -801,6 +801,96 @@ export async function getTodayImpressions(sponsorId: number): Promise<number> {
   return rows.length > 0 ? rows[0].count : 0;
 }
 
+// ─── Histórico administrativo das regras ─────────────────────────────────────
+
+export type RulesTestFailureRecord = {
+  title: string;
+  group: string;
+  detail?: string;
+};
+
+export type RulesTestExecutionInput = {
+  status: 'passed' | 'failed';
+  passedChecks: number;
+  totalChecks: number;
+  failedChecks: RulesTestFailureRecord[];
+  executedById?: number;
+  executedByName?: string | null;
+};
+
+export type RulesTestExecutionHistoryRow = mysql.RowDataPacket & {
+  id: number;
+  status: 'passed' | 'failed';
+  passedChecks: number;
+  totalChecks: number;
+  failedChecksJson: string;
+  executedById: number | null;
+  executedByName: string | null;
+  ownerNotified: number | boolean;
+  createdAt: Date | string;
+};
+
+/** Persiste cada execução para auditoria; devolve null em testes sem banco. */
+export async function recordRulesTestExecution(input: RulesTestExecutionInput): Promise<number | null> {
+  const db = await getDb();
+  if (!db || !_pool) return null;
+  const [result] = await _pool.execute<mysql.ResultSetHeader>(
+    `INSERT INTO rulesTestExecutions
+      (status, passedChecks, totalChecks, failedChecksJson, executedById, executedByName)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      input.status,
+      input.passedChecks,
+      input.totalChecks,
+      JSON.stringify(input.failedChecks),
+      input.executedById ?? null,
+      input.executedByName ?? null,
+    ],
+  );
+  return Number(result.insertId || 0) || null;
+}
+
+/** Registra se o alerta enviado ao proprietário do projeto foi aceito pelo serviço. */
+export async function setRulesTestExecutionOwnerNotification(executionId: number, delivered: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db || !_pool) return;
+  await _pool.execute(
+    `UPDATE rulesTestExecutions SET ownerNotified = ? WHERE id = ?`,
+    [delivered, executionId],
+  );
+}
+
+/** Retorna as execuções administrativas mais recentes, primeiro as mais novas. */
+export async function listRecentRulesTestExecutions(limit = 15): Promise<RulesTestExecutionHistoryRow[]> {
+  const db = await getDb();
+  if (!db || !_pool) return [];
+  const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
+  const [rows] = await _pool.query<RulesTestExecutionHistoryRow[]>(
+    `SELECT id, status, passedChecks, totalChecks, failedChecksJson, executedById,
+            executedByName, ownerNotified, createdAt
+       FROM rulesTestExecutions
+      ORDER BY createdAt DESC, id DESC
+      LIMIT ?`,
+    [safeLimit],
+  );
+  return rows;
+}
+
+/** Obtém uma execução específica para a exportação do diagnóstico administrativo. */
+export async function getRulesTestExecution(executionId: number): Promise<RulesTestExecutionHistoryRow | null> {
+  const db = await getDb();
+  if (!db || !_pool) return null;
+  const [rows] = await _pool.query<RulesTestExecutionHistoryRow[]>(
+    `SELECT id, status, passedChecks, totalChecks, failedChecksJson, executedById,
+            executedByName, ownerNotified, createdAt
+       FROM rulesTestExecutions
+      WHERE id = ?
+      LIMIT 1`,
+    [executionId],
+  );
+  return rows[0] ?? null;
+}
+
 // ─── Pilas (Moeda Virtual) ──────────────────────────────────────────────────
 
 /**

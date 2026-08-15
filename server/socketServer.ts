@@ -63,6 +63,22 @@ const matchmakingQueue: { socketId: string; userId: number; userName: string; mo
 const socketToRoom = new Map<string, string>(); // socketId -> roomCode
 const socketToUser = new Map<string, { userId: number; userName: string }>(); // socketId -> user info
 const userToRoom = new Map<number, string>(); // userId -> roomCode (for reconnection)
+let socketIo: Server | null = null;
+
+export type RulesTestFailureAlert = {
+  executionId: number;
+  passed: number;
+  total: number;
+  failedChecks: { title: string; group: string; detail?: string }[];
+  createdAt: string;
+};
+
+/** Emite um aviso apenas para os administradores conectados nesta instância. */
+export function emitRulesTestFailureToAdmins(alert: RulesTestFailureAlert): boolean {
+  if (!socketIo) return false;
+  socketIo.to("admins").emit("rules_test_failure", alert);
+  return true;
+}
 
 // Atomic counter: tracks players currently in an active (playing) game.
 // Updated in startGame (+2) and endOnlineGame (-2) to avoid the inaccurate rooms.size × 2 estimate.
@@ -225,6 +241,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     path: "/api/socketio",
     transports: ["websocket", "polling"],
   });
+  socketIo = io;
   console.log("[Socket.io] Multiplayer server initialized");
 
   // ── Startup cleanup: closes only abandoned waiting rooms ──
@@ -307,7 +324,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           // JWT is valid — use the verified openId to look up the real userId in DB
           // This prevents a malicious client from passing a different userId
           const d = await getDb();
-          const dbRows = d ? await d.select({ id: users.id, name: users.name })
+          const dbRows = d ? await d.select({ id: users.id, name: users.name, role: users.role })
             .from(users)
             .where(eq(users.openId, session.openId))
             .limit(1)
@@ -317,6 +334,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           if (dbUser) {
             // Use the DB-verified userId and name — ignore what the client sent
             socketToUser.set(socket.id, { userId: dbUser.id, userName: dbUser.name || data.userName });
+            if (dbUser.role === 'admin') socket.join('admins');
             broadcastOnlineStats();
             cb?.({ success: true });
             return;

@@ -88,3 +88,12 @@
 - [x] Cobrir alertas de falha, sucesso e recuperação com testes e validação visual.
 - [x] Validar visualmente o alerta de falha e os checks destacados com uma resposta controlada no navegador.
 - [x] Validar visualmente a recuperação pelo botão de nova execução no alerta.
+- [x] Persistir um histórico administrativo de execuções e falhas da autoverificação de regras.
+- [x] Notificar imediatamente administradores conectados na mesma instância via Socket.IO e detectar falhas de outras instâncias pelo fallback persistente de até 3 segundos.
+- [x] Permitir a exportação segura do diagnóstico de uma falha em arquivo CSV.
+- [x] Integrar histórico, alertas Socket.IO locais, fallback persistente e exportação à página administrativa de testes.
+- [x] Cobrir os fluxos com testes, validar visualmente e limpar todos os dados temporários de smoke test.
+- [x] Implementar fallback cross-instance pelo histórico persistente em Autoscale para administradores conectados em qualquer instância.
+- [x] Executar smoke real: falha do backend emite rules_test_failure e alerta aparece na sessão administrativa conectada.
+- [x] Validar E2E que uma falha real chega à interface especificamente via evento Socket.IO, com o polling desativado.
+- [x] Validar o caminho compartilhado do banco com listener Socket.IO desativado, comprovando a detecção do fallback persistente entre instâncias.

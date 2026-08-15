@@ -365,6 +365,33 @@ export const onlineTournamentPlayers = mysqlTable("onlineTournamentPlayers", {
 export type OnlineTournamentPlayer = typeof onlineTournamentPlayers.$inferSelect;
 export type InsertOnlineTournamentPlayer = typeof onlineTournamentPlayers.$inferInsert;
 
+// ─── Auditoria de autoverificações de regras ──────────────────────────────────
+
+/**
+ * Histórico administrativo de cada execução determinística de Truco, Envido e
+ * Flor. O diagnóstico completo fica serializado para consulta e exportação.
+ */
+export const rulesTestExecutions = mysqlTable("rulesTestExecutions", {
+  id: int("id").autoincrement().primaryKey(),
+  status: mysqlEnum("status", ["passed", "failed"]).notNull(),
+  passedChecks: int("passedChecks").notNull(),
+  totalChecks: int("totalChecks").notNull(),
+  /** JSON com os checks reprovados; vazio quando a execução for aprovada. */
+  failedChecksJson: text("failedChecksJson").notNull(),
+  /** Administrador que abriu o relatório e disparou a autoverificação. */
+  executedById: int("executedById").references(() => users.id, { onDelete: "set null" }),
+  executedByName: varchar("executedByName", { length: 100 }),
+  /** Indica se o alerta ao proprietário do projeto foi aceito pelo serviço. */
+  ownerNotified: boolean("ownerNotified").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  statusCreatedIdx: index("rte_status_created_idx").on(table.status, table.createdAt),
+  createdIdx: index("rte_created_idx").on(table.createdAt),
+}));
+
+export type RulesTestExecution = typeof rulesTestExecutions.$inferSelect;
+export type InsertRulesTestExecution = typeof rulesTestExecutions.$inferInsert;
+
 // ─── Sponsors / Patrocinadores ─────────────────────────────────────────────────────────
 
 /**
