@@ -80,3 +80,6 @@
 - [x] Criar relatório estruturado de cenários automatizados de Truco, Envido e Flor.
 - [x] Abrir a página de testes com sessão administrativa e validar o carregamento real pela interface (conta temporária admin, atalho Testes, relatório e autoverificação 5/5; conta removida após o teste).
 - [x] Executar autoverificação real de Truco, Envido e Flor no relatório administrativo e validar seus estados.
+- [x] Adicionar gráfico circular de cobertura geral e barras de progresso por grupo ao relatório administrativo de regras.
+- [x] Exibir barras de execução dos checks em tempo real com percentuais e estados de aprovação ou falha.
+- [x] Validar visualmente os novos indicadores de cobertura, responsividade (375 px, 768 px e 1280 px), testes e build; nenhuma barra extrapolou o painel.

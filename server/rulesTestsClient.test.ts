@@ -31,13 +31,29 @@ describe("rules test page loader", () => {
     complete({
       suite: "Vitest",
       summary: { covered: 20, categories: 3, runner: "Vitest" },
-      groups: [{ title: "Truco", description: "Chamadas", scenarios: ["Aceite"] }],
-      execution: { overall: "passed", passed: 5, total: 5, checks: [{ title: "Truco é aceito", passed: true }] },
+      groups: [
+        { title: "Truco", description: "Chamadas", scenarios: ["Aceite", "Recusa"] },
+        { title: "Envido", description: "Pontos", scenarios: ["Bloqueio"] },
+        { title: "Flor", description: "Cadeia", scenarios: ["Contra-Flor"] },
+      ],
+      execution: {
+        overall: "passed", passed: 5, total: 5,
+        checks: [
+          { title: "Truco é aceito", group: "truco", passed: true },
+          { title: "Truco mantém turno", group: "truco", passed: true },
+          { title: "Envido bloqueado", group: "envido", passed: true },
+          { title: "Flor chamada", group: "flor", passed: true },
+          { title: "Contra-Flor chamada", group: "flor", passed: true },
+        ],
+      },
       generatedAt: "2026-08-15T00:00:00.000Z",
     });
     await pending;
     expect(client.body.innerHTML).toContain("Autoverificação em tempo real");
+    expect(client.body.innerHTML).toContain("Mapa de Cobertura");
     expect(client.body.innerHTML).toContain("5/5");
+    expect(client.body.innerHTML).toContain("2/2 · 100%");
+    expect((client.body.innerHTML.match(/role=\"progressbar\"/g) || []).length).toBe(6);
     expect(client.body.innerHTML).toContain("Truco é aceito");
   });
 
