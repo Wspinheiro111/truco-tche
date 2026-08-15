@@ -74,3 +74,9 @@
 - [x] Emitir notificações Socket.IO de solicitação recebida e amizade aceita ou recusada.
 - [x] Criar smoke test permanente do fluxo completo: amizade, convite, bloqueio, entrada e `game_started` privado.
 - [x] Preservar sala privada já ocupada se o anfitrião desconectar durante o agendamento de início.
+- [x] Testar jogo on-line ponta a ponta em produção com dois jogadores autenticados: sala, início, carta e reconexão.
+- [x] Limpar contas e partidas temporárias geradas no teste on-line.
+- [x] Verificar a remoção em cascata de salas e snapshots temporários do teste E2E.
+- [x] Criar relatório estruturado de cenários automatizados de Truco, Envido e Flor.
+- [x] Abrir a página de testes com sessão administrativa e validar o carregamento real pela interface (conta temporária admin, atalho Testes, relatório e autoverificação 5/5; conta removida após o teste).
+- [x] Executar autoverificação real de Truco, Envido e Flor no relatório administrativo e validar seus estados.

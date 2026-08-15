@@ -2259,6 +2259,14 @@ body, .scr {
   <div id="profile-body" style="padding:1rem;overflow-y:auto;flex:1"></div>
 </div>
 
+<!-- ══ RULES TEST REPORT ══ -->
+<div id="rules-tests-scr" class="scr">
+  <div class="page-hdr"><button class="back-btn" onclick="show('home')">← Voltar</button><span class="page-ttl">Testes de Regras</span></div>
+  <div id="rules-tests-body" style="padding:1rem;overflow-y:auto;flex:1;background:radial-gradient(circle at 50% 0%,rgba(47,118,103,.22),transparent 42%)">
+    <div style="text-align:center;color:rgba(255,255,255,.65);padding:2rem"><div class="spinner" style="margin:0 auto .7rem"></div>Carregando cobertura das regras...</div>
+  </div>
+</div>
+
 <!-- ══ MODALS ══ -->
 <div class="modal hidden" id="m-truco">
   <div class="sheet"><div class="sh-handle"></div><span class="sh-ico">🔥</span>
@@ -6919,6 +6927,31 @@ async function renderOnlineHistory() {
     return data?.json !== undefined ? data.json : data;
   }
 
+  async function loadRulesTestReport() {
+    const target = document.getElementById('rules-tests-body');
+    if (!target) return;
+    target.innerHTML = '<div style="text-align:center;color:rgba(255,255,255,.65);padding:2rem"><div class="spinner" style="margin:0 auto .7rem"></div>Consultando cobertura automatizada...</div>';
+    try {
+      const report = await trpcQuery('rulesTests.report');
+      const summary = report.summary || {};
+      const groups = Array.isArray(report.groups) ? report.groups : [];
+      let cards = groups.map(function(group, index) {
+        const accents = ['#f2b23c', '#55a8e8', '#d379bb'];
+        const scenarios = (group.scenarios || []).map(function(scenario) { return '<li style="display:flex;gap:.48rem;align-items:flex-start;margin:.42rem 0;color:rgba(255,255,255,.84);font-size:.76rem;line-height:1.35"><span style="color:#7be09a">✓</span><span>' + escapeRoomText(scenario) + '</span></li>'; }).join('');
+        return '<section style="background:rgba(7,15,28,.52);border:1px solid ' + accents[index % accents.length] + ';border-radius:14px;padding:.9rem;margin:.8rem 0;box-shadow:0 8px 24px rgba(0,0,0,.15)"><div style="display:flex;justify-content:space-between;gap:.7rem;align-items:flex-start"><div><div style="font-family:Georgia,serif;color:' + accents[index % accents.length] + ';font-size:1.05rem;font-weight:700">' + escapeRoomText(group.title) + '</div><div style="color:rgba(255,255,255,.58);font-size:.7rem;margin-top:.22rem;line-height:1.35">' + escapeRoomText(group.description) + '</div></div><span style="background:rgba(123,224,154,.14);border:1px solid rgba(123,224,154,.35);color:#8ce9a9;border-radius:999px;padding:.22rem .46rem;font-size:.61rem;font-weight:800;white-space:nowrap">COBERTO</span></div><ul style="list-style:none;padding:0;margin:.7rem 0 0">' + scenarios + '</ul></section>';
+      }).join('');
+      const generatedAt = report.generatedAt ? new Date(report.generatedAt).toLocaleString('pt-BR') : 'agora';
+      const execution = report.execution || { passed: 0, total: 0, overall: 'failed', checks: [] };
+      const executionColor = execution.overall === 'passed' ? '#91efa9' : '#ff9a9a';
+      const executionRows = (execution.checks || []).map(function(check) { return '<li style="display:flex;gap:.48rem;align-items:flex-start;margin:.35rem 0;color:rgba(255,255,255,.82);font-size:.72rem"><span style="color:' + (check.passed ? '#91efa9' : '#ff9a9a') + '">' + (check.passed ? '✓' : '✕') + '</span><span>' + escapeRoomText(check.title) + (check.passed ? '' : ' — ' + escapeRoomText(check.detail || 'Falhou')) + '</span></li>'; }).join('');
+      cards = '<section style="background:rgba(8,31,29,.58);border:1px solid ' + executionColor + ';border-radius:14px;padding:.9rem;margin:.8rem 0"><div style="display:flex;justify-content:space-between;gap:.7rem;align-items:center"><div><div style="font-family:Georgia,serif;color:' + executionColor + ';font-size:1.02rem;font-weight:700">Autoverificação em tempo real</div><div style="color:rgba(255,255,255,.58);font-size:.7rem;margin-top:.2rem">Checks determinísticos executados ao abrir este relatório.</div></div><strong style="color:' + executionColor + ';font-size:1.05rem">' + Number(execution.passed || 0) + '/' + Number(execution.total || 0) + '</strong></div><ul style="list-style:none;padding:0;margin:.7rem 0 0">' + executionRows + '</ul></section>' + cards;
+      target.innerHTML = '<section style="background:linear-gradient(135deg,rgba(40,112,91,.72),rgba(20,55,77,.72));border:1px solid rgba(112,216,180,.5);border-radius:16px;padding:1rem"><div style="display:flex;justify-content:space-between;gap:.7rem;align-items:flex-start"><div><div style="font-family:Georgia,serif;color:#d6f6da;font-size:1.1rem;font-weight:700">Motor de Regras Validado</div><div style="color:rgba(255,255,255,.72);font-size:.7rem;margin-top:.3rem">Relatório administrativo da cobertura definida na suíte ' + escapeRoomText(report.suite || 'Vitest') + '.</div></div><span style="color:#a5f4b9;font-size:1.35rem">🛡️</span></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.9rem"><div style="background:rgba(0,0,0,.18);border-radius:10px;padding:.55rem;text-align:center"><div style="color:#fff;font-weight:800;font-size:1.15rem">' + Number(summary.covered || 0) + '</div><div style="color:rgba(255,255,255,.62);font-size:.58rem;text-transform:uppercase">Cenários</div></div><div style="background:rgba(0,0,0,.18);border-radius:10px;padding:.55rem;text-align:center"><div style="color:#fff;font-weight:800;font-size:1.15rem">' + Number(summary.categories || 0) + '</div><div style="color:rgba(255,255,255,.62);font-size:.58rem;text-transform:uppercase">Grupos</div></div><div style="background:rgba(0,0,0,.18);border-radius:10px;padding:.55rem;text-align:center"><div style="color:#fff;font-weight:800;font-size:.82rem;padding-top:.14rem">' + escapeRoomText(summary.runner || 'Vitest') + '</div><div style="color:rgba(255,255,255,.62);font-size:.58rem;text-transform:uppercase">Executor</div></div></div></section>' + cards + '<div style="text-align:center;color:rgba(255,255,255,.4);font-size:.62rem;padding:.55rem 0">Relatório consultado em ' + escapeRoomText(generatedAt) + '. Execute a suíte de CI para validar uma nova revisão de código.</div>';
+    } catch (error) {
+      target.innerHTML = '<section style="text-align:center;padding:2rem;background:rgba(126,25,34,.22);border:1px solid rgba(246,122,135,.42);border-radius:14px"><div style="font-size:1.4rem">⚠️</div><div style="color:#ffc0c6;font-weight:700;margin-top:.4rem">Relatório indisponível</div><div style="color:rgba(255,255,255,.62);font-size:.72rem;margin:.4rem 0 .8rem">A página exige uma sessão de administrador válida.</div><button onclick="loadRulesTestReport()" style="background:#246e5e;border:0;border-radius:8px;color:#fff;padding:.45rem .75rem;font-weight:800;cursor:pointer">Tentar novamente</button></section>';
+    }
+  }
+  window.loadRulesTestReport = loadRulesTestReport;
+
   // ─── Local user state ───
   let localUser = JSON.parse(localStorage.getItem('truco_local_user') || 'null');
   let resetToken = null;
@@ -9190,6 +9223,17 @@ function checkAdminAccess() {
   // Verifica role=admin OU email do admin principal
   const isAdmin = user.role === 'admin' || (user.email && user.email.toLowerCase() === 'gerentewilliam.pinheiro@gmail.com');
   btn.style.display = isAdmin ? '' : 'none';
+  let rulesBtn = document.getElementById('rules-tests-btn');
+  if (isAdmin && !rulesBtn) {
+    rulesBtn = document.createElement('button');
+    rulesBtn.id = 'rules-tests-btn';
+    rulesBtn.className = 'hfb';
+    rulesBtn.style.cssText = 'background:#246e5e;color:#fff;border-color:#62bda8';
+    rulesBtn.textContent = '🧪 Testes';
+    rulesBtn.onclick = () => { show('rules-tests-scr'); loadRulesTestReport(); };
+    btn.insertAdjacentElement('afterend', rulesBtn);
+  }
+  if (rulesBtn) rulesBtn.style.display = isAdmin ? '' : 'none';
 }
 
 // Switch admin tabs

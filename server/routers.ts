@@ -9,6 +9,7 @@ import { sponsorRouter } from "./sponsorRouter";
 import { adminRouter } from "./adminRouter";
 import { pilasRouter } from "./pilasRouter";
 import { friendsRouter } from "./friendsRouter";
+import { rulesTestRouter } from "./rulesTestRouter";
 import { getOnlineMatchHistory, getTournamentBracket, unlinkGoogleAccount } from "./db";
 
 /**
@@ -79,6 +80,7 @@ export const appRouter = router({
   admin: adminRouter,
   pilas: pilasRouter,
   friends: friendsRouter,
+  rulesTests: rulesTestRouter,
   online: router({
     matchHistory: protectedProcedure.query(async ({ ctx }) => {
       return getOnlineMatchHistory(ctx.user.id, 30);
