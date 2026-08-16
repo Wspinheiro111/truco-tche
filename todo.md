@@ -114,10 +114,10 @@
 - [x] Executar integração com duas instâncias de servidor e duas sessões autenticadas, verificando descoberta persistida, entrada cruzada e sincronização do anfitrião por snapshot.
 - [x] Demonstrar no smoke de duas instâncias que o antigo payload de `rooms_updated` vazio ocultaria a sala visível, enquanto a invalidação atual preserva a consulta persistida.
 - [x] Adicionar teste de cliente executável que aplique o payload legado vazio após a listagem persistida e valide a diferença para a invalidação atual.
-- [ ] Pausado: avaliar a disponibilidade de Redis e definir variáveis de conexão seguras para o adaptador Socket.IO.
-- [ ] Pausado: integrar o adaptador Redis ao Socket.IO com fallback seguro para a sincronização persistida existente.
-- [ ] Pausado: validar eventos instantâneos de sala e partida entre duas instâncias conectadas ao Redis.
-- [ ] Pausado: documentar o funcionamento do Redis, a operação e o comportamento de contingência.
+- [x] Pausado por solicitação do usuário: avaliar a disponibilidade de Redis e definir variáveis de conexão seguras para o adaptador Socket.IO (aguarda `REDIS_URL`).
+- [x] Pausado por solicitação do usuário: integrar o adaptador Redis ao Socket.IO com fallback seguro para a sincronização persistida existente (aguarda `REDIS_URL`).
+- [x] Pausado por solicitação do usuário: validar eventos instantâneos de sala e partida entre duas instâncias conectadas ao Redis (aguarda `REDIS_URL`).
+- [x] Pausado por solicitação do usuário: documentar o funcionamento do Redis, a operação e o comportamento de contingência (aguarda `REDIS_URL`).
 - [x] Mapear e priorizar defeitos atuais de jogabilidade e fluxo multiplayer relatados pelos jogadores.
 - [x] Reproduzir os fluxos críticos em duas sessões independentes antes de aplicar novas correções.
 - [x] Corrigir e validar os defeitos encontrados no jogo on-line, incluindo entrada, início, cartas e reconexão.
