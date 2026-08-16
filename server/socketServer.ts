@@ -291,7 +291,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
   }
 
   function broadcastWaitingRooms() {
-    io.emit("rooms_updated", { rooms: getWaitingRoomSummaries(rooms.values()) });
+    // O Map de salas pertence apenas a esta instância. Em Autoscale, transferir
+    // esse conteúdo faria outro cliente substituir a lista global por um recorte
+    // local. O evento é somente uma invalidação: cada cliente consulta o banco.
+    io.emit("rooms_invalidated", { at: Date.now() });
   }
 
   io.on("connection", (socket: Socket) => {
@@ -426,7 +429,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
         }
       }, ROOM_WAIT_TIMEOUT_MS);
 
-      // Persist to DB (only for real numeric user IDs)
+      // Persistir antes de anunciar a sala. O banco é a fonte compartilhada entre
+      // instâncias Autoscale; uma sala que não foi salva não pode ser descoberta.
       if (typeof user.userId === 'number') {
         try {
           await (await db()).insert(onlineRooms).values({
@@ -441,7 +445,16 @@ export function initSocketServer(httpServer: HttpServer): Server {
             status: "waiting",
             tournamentId: data.tournamentId || null,
           });
-        } catch (e: unknown) { console.error("[Socket] DB room insert error:", e); }
+        } catch (e: unknown) {
+          console.error("[Socket] DB room insert error:", e);
+          if (room.waitingTimer) clearTimeout(room.waitingTimer);
+          rooms.delete(code);
+          socketToRoom.delete(socket.id);
+          userToRoom.delete(user.userId);
+          socket.leave(code);
+          cb?.({ error: "Não foi possível abrir a sala. Tente novamente." });
+          return;
+        }
       }
 
       if (privateInviteeId) {
@@ -1045,7 +1058,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         }
         cb?.({ rooms: storedRooms
           .filter(room => !isWaitingRoomExpired(room.createdAt))
-          .map(({ createdAt: _createdAt, ...room }) => ({ ...room, spectators: rooms.get(room.code)?.spectators.size ?? 0 })) });
+          .map(({ createdAt: _createdAt, ...room }) => ({ ...room, spectators: 0 })) });
       } catch (error) {
         console.error("[Socket] list_rooms failed:", error);
         cb?.({ rooms: [], error: "Não foi possível listar salas" });

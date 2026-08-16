@@ -105,3 +105,12 @@
 - [x] Adicionar teste de contrato do cliente para retenção visual da vaza e indicador de vencedor on-line.
 - [x] Medir explicitamente a mão e a mesa em 1280 px, confirmando que as cartas e a vaza não extrapolam seus contêineres.
 - [x] Repetir a medição desktop após estabilização do layout, com tolerância de subpixel, e registrar resultado objetivo positivo.
+- [x] Reproduzir a ausência de visibilidade entre dois jogadores autenticados em dispositivos distintos por meio de uma regressão controlada do cenário de estado local fragmentado no Autoscale.
+- [x] Investigar autenticação, conexão Socket.IO, publicação e atualização de salas entre dispositivos, com revisão técnica independente do Gemini.
+- [x] Corrigir a descoberta e a entrada em sala on-line entre clientes independentes.
+- [x] Validar o fluxo completo com duas sessões independentes e limpar todos os dados temporários de smoke test.
+- [x] Executar smoke de regressão: cliente A cria a sala, cliente B recebe invalidação, encontra no banco e entra com sucesso.
+- [x] Demonstrar em teste o comportamento legado: payload vazio de uma instância sem sala sobrescreveria a lista visível de outro cliente.
+- [x] Executar integração com duas instâncias de servidor e duas sessões autenticadas, verificando descoberta persistida, entrada cruzada e sincronização do anfitrião por snapshot.
+- [x] Demonstrar no smoke de duas instâncias que o antigo payload de `rooms_updated` vazio ocultaria a sala visível, enquanto a invalidação atual preserva a consulta persistida.
+- [x] Adicionar teste de cliente executável que aplique o payload legado vazio após a listagem persistida e valide a diferença para a invalidação atual.

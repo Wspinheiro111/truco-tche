@@ -7695,7 +7695,12 @@ function ensureSocket() {
     console.log('[SIO] Connected:', sio.id);
     showConnectionBanner('hidden');
     // Authenticate before requesting a reconnection, so identity is verified server-side.
-    _sioDoAuth(function() { tryRejoinGame(); recoverWaitingRoom(); });
+    _sioDoAuth(function() {
+      tryRejoinGame();
+      recoverWaitingRoom();
+      // Atualiza o painel inicial pela consulta persistida após toda reconexão.
+      refreshHomeActiveRooms();
+    });
   });
   sio.on('connect_error', (error) => {
     console.error('[SIO] Connection error:', error.message || error);
@@ -7716,11 +7721,15 @@ function ensureSocket() {
     }
   });
 
-  sio.on('rooms_updated', (data) => {
+  // A lista recebida por Socket.IO pode pertencer somente à instância local.
+  // Trate eventos de sala como invalidação e consulte a fonte persistida.
+  function refreshRoomsAfterInvalidation() {
     var panel = document.getElementById('active-rooms-panel');
-    if (panel && panel.style.display !== 'none') renderActiveRooms(data?.rooms || []);
-    renderHomeActiveRooms(data?.rooms || []);
-  });
+    if (panel && panel.style.display !== 'none') refreshActiveRooms();
+    else refreshHomeActiveRooms();
+  }
+  sio.on('rooms_invalidated', refreshRoomsAfterInvalidation);
+  sio.on('rooms_updated', refreshRoomsAfterInvalidation);
 
   sio.on('friend_game_invite', function(invite) {
     toast((invite.senderName || 'Um amigo') + ' enviou um convite privado!', 'info');
@@ -8329,7 +8338,9 @@ function setOnlineLobbyMode(mode) {
   var browsing = mode === 'browse';
   if (panel) panel.style.display = browsing ? 'block' : 'none';
   if (waiting) waiting.style.display = browsing ? 'none' : 'flex';
-  if (browsing && !_activeRoomsRefreshTimer) _activeRoomsRefreshTimer = setInterval(refreshActiveRooms, 15000);
+  // Sem um adapter global de Socket.IO, este polling curto alcança salas criadas
+  // por outra instância Autoscale usando a consulta persistida `list_rooms`.
+  if (browsing && !_activeRoomsRefreshTimer) _activeRoomsRefreshTimer = setInterval(refreshActiveRooms, 5000);
   if (!browsing) stopActiveRoomsRefresh();
 }
 
