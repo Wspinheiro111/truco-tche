@@ -216,10 +216,13 @@ function roomFromSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof getAct
 
 async function persistRoomState(room: RoomData, eventId: string): Promise<boolean> {
   if (!room.state || room.snapshotVersion === null) return true;
+  const reconnectAt = eventId === "reconnect:p1" || eventId === "reconnect:p2" ? new Date() : undefined;
   const persisted = await updateActiveOnlineGame(room.code, room.snapshotVersion, {
     stateJson: JSON.stringify(room.state),
     turnDeadline: getTurnDeadline(room.state),
     lastEventId: eventId,
+    ...(eventId === "reconnect:p1" ? { player1ReconnectedAt: reconnectAt } : {}),
+    ...(eventId === "reconnect:p2" ? { player2ReconnectedAt: reconnectAt } : {}),
     status: room.state.phase === "game_over" ? "finished" : "active",
   });
   if (persisted) {
@@ -1266,6 +1269,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
         const alreadyHydrated = rooms.get(roomCode);
         if (alreadyHydrated) {
           room = alreadyHydrated;
+          room.state = JSON.parse(snapshot.stateJson) as GameState;
+          room.snapshotVersion = snapshot.version;
           restoredFromSnapshot = true;
         } else {
           room = roomFromSnapshot(snapshot);
@@ -1318,6 +1323,12 @@ export function initSocketServer(httpServer: HttpServer): Server {
       socketToUser.set(socket.id, { userId, userName });
       userToRoom.set(userId, resolvedRoomCode);
       socket.join(resolvedRoomCode);
+
+      // Registra a reconexão na fonte de verdade. Uma instância que ainda
+      // mantém o timer de abandono conseguirá identificar essa retomada.
+      if (!await persistRoomState(room, `reconnect:${role}`)) {
+        console.warn(`[Socket] Could not persist reconnection marker for ${resolvedRoomCode}`);
+      }
 
       // Notify opponent
       const opponentRole: Player = role === "p1" ? "p2" : "p1";
@@ -1418,9 +1429,23 @@ export function initSocketServer(httpServer: HttpServer): Server {
               });
 
               // Schedule walkover after grace period
-              const timer = setTimeout(() => {
+              const disconnectedAt = Date.now();
+              const timer = setTimeout(() => { void (async () => {
                 const stillDisconnected = room.disconnectedPlayers.has(player);
                 if (stillDisconnected && room.state && room.state.phase !== "game_over") {
+                  const persisted = await getActiveOnlineGameByRoom(roomCode);
+                  const reconnectedAt = player === "p1" ? persisted?.player1ReconnectedAt : persisted?.player2ReconnectedAt;
+                  const reconnectedElsewhere = Boolean(
+                    persisted?.status === "active" &&
+                    reconnectedAt &&
+                    new Date(reconnectedAt).getTime() >= Math.floor(disconnectedAt / 1_000) * 1_000,
+                  );
+                  if (reconnectedElsewhere) {
+                    room.state = JSON.parse(persisted!.stateJson) as GameState;
+                    room.snapshotVersion = persisted!.version;
+                    room.disconnectedPlayers.delete(player);
+                    return;
+                  }
                   const winner: Player = player === "p1" ? "p2" : "p1";
                   io.to(roomCode).emit("opponent_disconnected", {
                     winnerName: room.nameMap[winner],
@@ -1430,7 +1455,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
                   userToRoom.delete(userId);
                   socketToRoom.delete(room.playerMap[player]);  // ← Clean up socket mapping
                 }
-              }, RECONNECT_GRACE_MS);
+              })(); }, RECONNECT_GRACE_MS);
 
               room.disconnectedPlayers.set(player, { userId, userName, disconnectedAt: Date.now(), timer });
               userToRoom.set(userId, roomCode); // keep mapping for reconnection

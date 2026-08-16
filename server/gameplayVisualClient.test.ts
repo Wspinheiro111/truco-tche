@@ -20,4 +20,32 @@ describe("gameplay visual contract", () => {
     expect(html).toContain("Você ganhou a vaza");
     expect(html).toContain("Adversário ganhou a vaza");
   });
+
+  it("reconcilia rapidamente o estado persistido entre instâncias durante a espera e após ações", () => {
+    expect(html).toContain("const ONLINE_STATE_SYNC_WAITING_MS = 700");
+    expect(html).toContain("const ONLINE_STATE_SYNC_PLAYING_MS = 1200");
+    expect(html).toContain("function syncOnlineStateNow()");
+    expect(html).toContain("sioGameActive ? ONLINE_STATE_SYNC_PLAYING_MS : ONLINE_STATE_SYNC_WAITING_MS");
+    expect(html).toContain("sio.emit('play_card', { cardId: card.id }");
+    expect(html).toContain("syncOnlineStateNow();");
+  });
+
+  it("mantém a mesa com placar superior e controles laterais no desktop, preservando ações acessíveis no mobile", () => {
+    expect(html).toContain("<div class=\"og-hdr\">");
+    expect(html).toContain("position:absolute;");
+    expect(html).toContain("transform:translateY(-38%)");
+    expect(html).toContain("@media (max-width:820px)");
+    expect(html).toContain(".og-action-btns{flex-direction:row");
+    expect(html).toContain("padding:.4rem clamp(.4rem,13vw,11rem) .4rem .4rem");
+  });
+
+  it("expõe uma auditoria objetiva para a mesa mobile com placar, ações, mão e vaza dentro do viewport", () => {
+    expect(html).toContain("function auditOnlineMobileLayout()");
+    expect(html).toContain("scoreVisible: withinViewport(score)");
+    expect(html).toContain("actionsVisible: withinViewport(actions)");
+    expect(html).toContain("handVisible: withinViewport(hand)");
+    expect(html).toContain("tableVisible: withinViewport(table)");
+    expect(html).toContain("cardsVisible: cards.length === 3 && cards.every(withinViewport)");
+    expect(html).toContain('document.body.dataset.onlineLayoutAudit = JSON.stringify(result)');
+  });
 });

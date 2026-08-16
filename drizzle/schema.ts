@@ -265,6 +265,9 @@ export const activeOnlineGames = mysqlTable("activeOnlineGames", {
   /** Prazo absoluto do turno, em UTC, recuperável após reconexão. */
   turnDeadline: timestamp("turnDeadline"),
   lastEventId: varchar("lastEventId", { length: 64 }),
+  /** Última reconexão confirmada de cada jogador, usada contra abandono entre instâncias. */
+  player1ReconnectedAt: timestamp("player1ReconnectedAt"),
+  player2ReconnectedAt: timestamp("player2ReconnectedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

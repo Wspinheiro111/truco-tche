@@ -39,4 +39,24 @@ describe("multiplayer recovery client contract", () => {
     expect(server).toContain("room.snapshotVersion += 1");
     expect(server).toContain("room.snapshotVersion = latest.version");
   });
+
+  it("reidrata uma sala já presente na nova instância com o snapshot persistido mais recente", () => {
+    const server = readFileSync(resolve(process.cwd(), "server/socketServer.ts"), "utf8");
+    const reconnectStart = server.indexOf('socket.on("reconnect_game"');
+    const reconnectEnd = server.indexOf('// ── Authoritative sync:', reconnectStart);
+    const reconnectHandler = server.slice(reconnectStart, reconnectEnd);
+
+    expect(reconnectHandler).toContain("const alreadyHydrated = rooms.get(roomCode)");
+    expect(reconnectHandler).toContain("room.state = JSON.parse(snapshot.stateJson) as GameState");
+    expect(reconnectHandler).toContain("room.snapshotVersion = snapshot.version");
+    expect(reconnectHandler).toContain("persistRoomState(room, `reconnect:${role}`)");
+
+    const disconnectStart = server.indexOf('socket.on("disconnect"');
+    const disconnectHandler = server.slice(disconnectStart);
+    expect(server).toContain("player1ReconnectedAt");
+    expect(server).toContain("player2ReconnectedAt");
+    expect(disconnectHandler).toContain("const disconnectedAt = Date.now()");
+    expect(disconnectHandler).toContain('player === "p1" ? persisted?.player1ReconnectedAt : persisted?.player2ReconnectedAt');
+    expect(disconnectHandler).toContain("Math.floor(disconnectedAt / 1_000) * 1_000");
+  });
 });

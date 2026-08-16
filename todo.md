@@ -114,3 +114,23 @@
 - [x] Executar integração com duas instâncias de servidor e duas sessões autenticadas, verificando descoberta persistida, entrada cruzada e sincronização do anfitrião por snapshot.
 - [x] Demonstrar no smoke de duas instâncias que o antigo payload de `rooms_updated` vazio ocultaria a sala visível, enquanto a invalidação atual preserva a consulta persistida.
 - [x] Adicionar teste de cliente executável que aplique o payload legado vazio após a listagem persistida e valide a diferença para a invalidação atual.
+- [ ] Pausado: avaliar a disponibilidade de Redis e definir variáveis de conexão seguras para o adaptador Socket.IO.
+- [ ] Pausado: integrar o adaptador Redis ao Socket.IO com fallback seguro para a sincronização persistida existente.
+- [ ] Pausado: validar eventos instantâneos de sala e partida entre duas instâncias conectadas ao Redis.
+- [ ] Pausado: documentar o funcionamento do Redis, a operação e o comportamento de contingência.
+- [x] Mapear e priorizar defeitos atuais de jogabilidade e fluxo multiplayer relatados pelos jogadores.
+- [x] Reproduzir os fluxos críticos em duas sessões independentes antes de aplicar novas correções.
+- [x] Corrigir e validar os defeitos encontrados no jogo on-line, incluindo entrada, início, cartas e reconexão.
+- [x] Reduzir a latência do fallback persistido durante sala e partida, para que cartas e início sejam reconciliados rapidamente entre instâncias sem Redis.
+- [x] Validar a atualização de uma carta entre duas instâncias usando sincronização por snapshot e reconexão.
+- [x] Executar smoke de reconexão após jogada entre instâncias, validando mão, carta na mesa, turno e cronômetro restaurados.
+- [x] Persistir a reconexão no snapshot e impedir que o timer de outra instância encerre indevidamente a partida por abandono.
+- [x] Reorganizar a mesa on-line com placar compacto no topo e ações de jogo em uma coluna lateral direita.
+- [x] Manter as cartas do jogador integralmente visíveis na base, com placar superior e ações à direita no desktop.
+- [x] Preservar a vaza, o vencedor e os controles de Truco, Envido e Flor com leitura clara no novo layout.
+- [x] Validar a nova mesa inspirada na referência em desktop e mobile, sem reproduzir marca, anúncios ou elementos proprietários.
+- [x] Persistir por jogador uma confirmação de reconexão que sobreviva a jogadas posteriores dentro da janela de graça.
+- [x] Executar smoke cross-instance: reconectar, jogar antes de 30 segundos e confirmar que não ocorre abandono indevido.
+- [x] Inspecionar em largura mobile real o placar, ações, mão e vaza no novo layout.
+- [x] Adicionar medições automatizadas de viewport mobile para placar, ações, mão e área da vaza, confirmando ausência de overflow.
+- [x] Executar auditoria mobile real em navegador headless e registrar todos os campos aprovados do layout (375×812; placar, ações, mão, mesa e cartas aprovados; 3 ações disponíveis).

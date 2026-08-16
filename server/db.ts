@@ -484,7 +484,7 @@ export async function getActiveOnlineGameForUser(userId: number) {
 export async function updateActiveOnlineGame(
   roomCode: string,
   expectedVersion: number,
-  update: Pick<ActiveGameSnapshotInput, "stateJson" | "turnDeadline" | "lastEventId"> & { status?: "active" | "finished" | "abandoned" },
+  update: Pick<ActiveGameSnapshotInput, "stateJson" | "turnDeadline" | "lastEventId" | "player1ReconnectedAt" | "player2ReconnectedAt"> & { status?: "active" | "finished" | "abandoned" },
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

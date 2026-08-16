@@ -36,6 +36,7 @@ const hostReg = await trpc("localAuth.register", { name: `Cross Host ${runId}`, 
 const guestReg = await trpc("localAuth.register", { name: `Cross Guest ${runId}`, email: `cross-guest-${runId}@test.local`, pin: "222222", city: "Caxias do Sul", state: "RS" });
 const host = await connectAndAuth(hostUrl, hostReg.data.user, hostReg.cookie);
 const guest = await connectAndAuth(guestUrl, guestReg.data.user, guestReg.cookie);
+let hostReconnected;
 
 try {
   const room = await new Promise(resolve => host.emit("create_room", { mode: "1v1", stakeTier: "amistoso", region: "40" }, resolve));
@@ -64,6 +65,44 @@ try {
   const syncResult = await new Promise(resolve => host.emit("sync_game_state", {}, resolve));
   if (!syncResult?.ok) throw new Error(`Sincronização persistida do anfitrião falhou: ${syncResult?.error || "erro desconhecido"}`);
   const hostState = await hostSynchronizedState;
+  const cardId = hostState?.myHand?.[0]?.id;
+  if (!cardId) throw new Error("O anfitrião não recebeu uma carta jogável após a sincronização");
+
+  const guestStateAfterCard = waitFor(guest, "game_state", 6000);
+  const played = await new Promise(resolve => host.emit("play_card", { cardId }, resolve));
+  if (!played?.ok) throw new Error(`Jogada cruzada falhou: ${played?.error || "erro desconhecido"}`);
+  await new Promise(resolve => setTimeout(resolve, 150));
+  const guestSyncResult = await new Promise(resolve => guest.emit("sync_game_state", {}, resolve));
+  if (!guestSyncResult?.ok) throw new Error(`Sincronização do oponente após a carta falhou: ${guestSyncResult?.error || "erro desconhecido"}`);
+  const guestState = await guestStateAfterCard;
+  const cardReachedGuest = Array.isArray(guestState?.table) && guestState.table.some(entry => entry?.card?.id === cardId);
+  if (!cardReachedGuest) throw new Error("A carta persistida não chegou ao oponente pela sincronização entre instâncias");
+
+  host.disconnect();
+  hostReconnected = await connectAndAuth(guestUrl, hostReg.data.user, hostReg.cookie);
+  const recoveredState = waitFor(hostReconnected, "game_state", 6000);
+  const reconnected = await new Promise(resolve => hostReconnected.emit("reconnect_game", {}, resolve));
+  if (!reconnected?.success) throw new Error(`Reconexão cruzada falhou: ${reconnected?.error || "erro desconhecido"}`);
+  const recoveredHostState = await recoveredState;
+  const recoveredCard = Array.isArray(recoveredHostState?.table) && recoveredHostState.table.some(entry => entry?.card?.id === cardId);
+  const recoveredTurn = recoveredHostState?.turn === guestState?.turn;
+  const recoveredClock = typeof recoveredHostState?.turnTimeLeftMs === "number" && recoveredHostState.turnTimeLeftMs >= 0;
+  if (!recoveredCard || !recoveredTurn || !recoveredClock) {
+    throw new Error("Reconexão cruzada não restaurou carta, turno e cronômetro corretamente");
+  }
+
+  const guestCardId = guestState?.myHand?.[0]?.id;
+  if (!guestCardId) throw new Error("O oponente não recebeu uma carta jogável após a reconexão");
+  const guestPlayed = await new Promise(resolve => guest.emit("play_card", { cardId: guestCardId }, resolve));
+  if (!guestPlayed?.ok) throw new Error(`Jogada posterior à reconexão falhou: ${guestPlayed?.error || "erro desconhecido"}`);
+
+  await new Promise(resolve => setTimeout(resolve, 31_000));
+  const postGraceState = waitFor(hostReconnected, "game_state", 6000);
+  const postGraceSync = await new Promise(resolve => hostReconnected.emit("sync_game_state", {}, resolve));
+  if (!postGraceSync?.ok) throw new Error(`A partida foi encerrada indevidamente após reconexão: ${postGraceSync?.error || "erro desconhecido"}`);
+  const postGraceHostState = await postGraceState;
+  const reconnectionMarkerSurvivedFollowupPlay = postGraceHostState?.phase !== "game_over";
+  if (!reconnectionMarkerSurvivedFollowupPlay) throw new Error("A partida encerrou indevidamente após reconexão seguida de nova jogada");
 
   console.log(JSON.stringify({
     ok: true,
@@ -77,8 +116,15 @@ try {
     hostReceivedGameStarted: await hostStarted,
     guestReceivedGameStarted: await guestStarted,
     hostReceivedSynchronizedState: Boolean(hostState?.synchronized),
+    cardReachedGuest,
+    recoveredAcrossInstances: true,
+    recoveredCard,
+    recoveredTurn,
+    recoveredClock,
+    reconnectionMarkerSurvivedFollowupPlay,
   }));
 } finally {
   host.disconnect();
   guest.disconnect();
+  hostReconnected?.disconnect();
 }
