@@ -337,6 +337,10 @@ export const onlineTournaments = mysqlTable("onlineTournaments", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   completedAt: timestamp("completedAt"),
+  /** Chave do certificado do campeão no armazenamento privado. */
+  championCertificateKey: varchar("championCertificateKey", { length: 255 }),
+  /** URL emitida ao campeão quando o torneio é concluído. */
+  championCertificateUrl: text("championCertificateUrl"),
 }, (table) => ({
   statusIdx: index("ot_status_idx").on(table.status),
   creatorIdx: index("ot_creator_idx").on(table.creatorId),

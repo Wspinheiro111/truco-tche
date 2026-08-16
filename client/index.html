@@ -2444,10 +2444,11 @@ body, .scr {
     <button class="back-btn" onclick="show('home')">← Voltar</button>
     <span class="page-ttl">Torneio dos Piquetes</span>
   </div>
-  <!-- Abas: Piquetes | Bracket | Histórico -->
+  <!-- Abas: Piquetes | Bracket local | Online 1×1 | Histórico -->
   <div style="display:flex;gap:.4rem;padding:.6rem .75rem 0;border-bottom:1px solid var(--bdr)">
     <button id="tab-piquetes" class="tab-btn active" onclick="switchTourneyTab('piquetes')">🤠 Piquetes</button>
     <button id="tab-bracket" class="tab-btn" onclick="switchTourneyTab('bracket')">🏟️ Bracket</button>
+    <button id="tab-online" class="tab-btn" onclick="switchTourneyTab('online')">🌐 1×1 Online</button>
     <button id="tab-history" class="tab-btn" onclick="switchTourneyTab('history')">📜 Histórico</button>
   </div>
   <!-- Painel Piquetes (AI) -->
@@ -2483,6 +2484,25 @@ body, .scr {
       </div>
       <div id="bracket-actions-inner" style="margin-top:.7rem"></div>
     </div>
+  </div>
+  <!-- Painel Online 1×1 -->
+  <div id="tourney-panel-online" style="flex:1;overflow-y:auto;display:none;padding:.75rem">
+    <div style="background:linear-gradient(135deg,rgba(200,168,75,.16),rgba(42,25,0,.28));border:1px solid rgba(200,168,75,.34);border-radius:12px;padding:.85rem;margin-bottom:.8rem">
+      <div style="font-size:1rem;font-weight:800;color:var(--tg-gold,#e8c45d)">🏆 Campeonato Mano a Mano</div>
+      <div style="font-size:.7rem;color:var(--txt2);margin-top:.24rem;line-height:1.35">Inscrição individual · sorteio auditável · confrontos 1×1. Escolha uma quantidade par de 2 a 64 jogadores.</div>
+      <input id="ot-name" class="auth-input" type="text" maxlength="48" placeholder="Nome do campeonato" style="width:100%;margin-top:.7rem">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.45rem;margin-top:.45rem">
+        <label style="font-size:.67rem;color:var(--txt3)">Vagas pares
+          <input id="ot-capacity" class="auth-input" type="number" min="2" max="64" step="2" value="8" aria-label="Quantidade de vagas pares" style="width:100%;margin-top:.2rem">
+        </label>
+        <label style="font-size:.67rem;color:var(--txt3)">Prêmio (opcional)
+          <input id="ot-prize" class="auth-input" type="text" maxlength="80" placeholder="Ex.: Troféu do Pago" style="width:100%;margin-top:.2rem">
+        </label>
+      </div>
+      <button class="mb mb-yes" onclick="createOnlineOneVsOneTournament()" style="margin-top:.7rem;width:100%">🎲 Criar e me inscrever</button>
+    </div>
+    <div style="font-size:.78rem;font-weight:800;margin:.2rem 0 .45rem">Campeonatos abertos</div>
+    <div id="ot-tournaments-list"></div>
   </div>
   <!-- Painel Histórico -->
   <div id="tourney-panel-history" style="flex:1;overflow-y:auto;display:none;padding:.75rem">
@@ -4672,13 +4692,14 @@ let _currentTourneyTab = 'piquetes';
 // ── Tab switching ──
 function switchTourneyTab(tab) {
   _currentTourneyTab = tab;
-  ['piquetes','bracket','history'].forEach(t => {
+  ['piquetes','bracket','online','history'].forEach(t => {
     document.getElementById('tourney-panel-' + t).style.display = t === tab ? 'flex' : 'none';
     document.getElementById('tab-' + t).classList.toggle('active', t === tab);
   });
   document.getElementById('tourney-panel-piquetes').style.flexDirection = 'column';
   if (tab === 'history') loadTourneyHistory();
   if (tab === 'bracket') renderBracketInner();
+  if (tab === 'online') loadOnlineTournaments();
 }
 
 // ── Start AI Tournament (Torneio dos Piquetes) ──
@@ -8118,6 +8139,62 @@ function ensureSocket() {
     if (_currentBracketTournamentId === data.tournamentId) {
       loadTournamentBracket(data.tournamentId);
     }
+    startTournamentMatchMonitor();
+  });
+
+  let tournamentMatchMonitor = null;
+  function enterTournamentMatch(data) {
+    if (!data?.roomCode) return;
+    if (data.status === 'playing') {
+      show('online-game');
+      sio.emit('reconnect_game', {}, (result) => {
+        if (!result?.success) toast(result?.error || 'Confronto iniciado; sincronizando a mesa...', 'info');
+      });
+      return;
+    }
+    const enterMatch = data.role === 'host'
+      ? (done) => sio.emit('recover_waiting_room', { code: data.roomCode }, done)
+      : (done) => sio.emit('join_room', { code: data.roomCode }, done);
+    enterMatch((result) => {
+      if (result?.error || result?.found === false) {
+        toast(result?.error || 'Não foi possível preparar teu confronto do torneio.', 'warn');
+        return;
+      }
+      toast(`🏆 Confronto pronto contra ${data.opponentName || 'adversário'}!`, 'win');
+      show('online-game');
+      // Quando os jogadores estiverem em instâncias diferentes, o snapshot
+      // persistido entrega a mão assim que a partida for iniciada.
+      setTimeout(() => { sio.emit('reconnect_game', {}, () => {}); }, 1200);
+    });
+  }
+
+  function monitorTournamentMatch() {
+    if (!sio || !sioConnected || !sioAuthenticated) return;
+    sio.emit('get_tournament_match', {}, (result) => {
+      if (!result?.found || !result.roomCode) return;
+      if (tournamentMatchMonitor) {
+        clearInterval(tournamentMatchMonitor);
+        tournamentMatchMonitor = null;
+      }
+      enterTournamentMatch(result);
+    });
+  }
+
+  function startTournamentMatchMonitor() {
+    if (tournamentMatchMonitor) return;
+    monitorTournamentMatch();
+    tournamentMatchMonitor = setInterval(monitorTournamentMatch, 2500);
+  }
+  window.startTournamentMatchMonitor = startTournamentMatchMonitor;
+
+  // Cada confronto da chave possui uma mesa privada persistida. O anfitrião
+  // recupera a sala e o adversário ocupa a vaga convidada automaticamente.
+  sio.on('tournament_match_ready', (data) => {
+    if (tournamentMatchMonitor) {
+      clearInterval(tournamentMatchMonitor);
+      tournamentMatchMonitor = null;
+    }
+    enterTournamentMatch(data);
   });
 
   // Real-time bracket updates — server now carries full bracketData in payload
@@ -8148,6 +8225,24 @@ function ensureSocket() {
     if (_currentBracketTournamentId === data.tournamentId) {
       loadTournamentBracket(data.tournamentId);
     }
+    sio.emit('get_tournament_certificate', { tournamentId: data.tournamentId }, (result) => {
+      if (result?.certificateUrl) downloadTournamentCertificate(result);
+    });
+  });
+
+  function downloadTournamentCertificate(data) {
+    if (!data?.certificateUrl) return;
+    toast('📜 Teu certificado de campeão está pronto!', 'win');
+    const link = document.createElement('a');
+    link.href = data.certificateUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.download = `certificado-${data.tournamentName || 'truco-tche'}.pdf`;
+    link.click();
+  }
+
+  sio.on('tournament_certificate_ready', (data) => {
+    downloadTournamentCertificate(data);
   });
 
   // Player left tournament (pre-start desistance)
@@ -8694,6 +8789,32 @@ function confirmCreateTournament() {
   });
 }
 
+function createOnlineOneVsOneTournament() {
+  if (!sio || !sioConnected || !sioAuthenticated) {
+    toast('Conectando à cancha...', 'info');
+    waitForAuth(createOnlineOneVsOneTournament);
+    return;
+  }
+  const name = (document.getElementById('ot-name')?.value || '').trim();
+  const prize = (document.getElementById('ot-prize')?.value || '').trim() || null;
+  const maxPlayers = Number(document.getElementById('ot-capacity')?.value || 0);
+  if (!name) { toast('Informe o nome do campeonato, tchê!', 'warn'); return; }
+  if (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > 64 || maxPlayers % 2 !== 0) {
+    toast('No mano a mano, informe um número par de 2 a 64 vagas.', 'warn');
+    return;
+  }
+  sio.emit('create_tournament', { name, maxPlayers, prize }, (res) => {
+    if (res.error) { toast(res.error, 'warn'); return; }
+    toast(`🏆 ${name} criado! Você é o primeiro inscrito.`, 'win');
+    const nameInput = document.getElementById('ot-name');
+    const prizeInput = document.getElementById('ot-prize');
+    if (nameInput) nameInput.value = '';
+    if (prizeInput) prizeInput.value = '';
+    loadOnlineTournaments();
+    window.startTournamentMatchMonitor?.();
+  });
+}
+
 function filterTournaments(filter, btn) {
   _tournamentFilter = filter;
   document.querySelectorAll('#tf-all,#tf-registering,#tf-active').forEach(b => {
@@ -8717,6 +8838,7 @@ function joinOnlineTournament(tournamentId) {
     toast(`🏆 Inscrito! ${total} jogador(es) até agora. Aguardando completar a chave...`, 'win');
     SFX.win && SFX.win();
     loadOnlineTournaments();
+    window.startTournamentMatchMonitor?.();
   });
 }
 
@@ -8735,7 +8857,7 @@ function leaveOnlineTournament(tournamentId) {
 
 function loadOnlineTournaments() {
   if (!sio || !sioConnected) return;
-  const el = document.getElementById('sio-tournaments-list');
+  const el = document.getElementById('ot-tournaments-list') || document.getElementById('sio-tournaments-list');
   if (el) el.innerHTML = '<div style="text-align:center;color:var(--txt3);font-size:.75rem;padding:1.5rem"><div class="spinner" style="margin:0 auto .5rem"></div>Buscando campeonatos...</div>';
   sio.emit('list_tournaments', {}, (res) => {
     if (res.error) return;
@@ -8745,7 +8867,7 @@ function loadOnlineTournaments() {
 }
 
 function renderTournamentsList(tournaments) {
-  const el = document.getElementById('sio-tournaments-list');
+  const el = document.getElementById('ot-tournaments-list') || document.getElementById('sio-tournaments-list');
   if (!el) return;
   const filtered = _tournamentFilter === 'all' ? tournaments
     : tournaments.filter(t => t.status === _tournamentFilter);
@@ -8774,7 +8896,7 @@ function renderTournamentsList(tournaments) {
               <span style="color:${statusColor};font-weight:600">${statusLabel}</span>
               &nbsp;·&nbsp;
               <span style="font-weight:700">${t.currentPlayers}/${t.maxPlayers}</span> jogadores
-              &nbsp;·&nbsp;${Math.log2(t.maxPlayers)} rodadas
+              &nbsp;·&nbsp;até ${Math.ceil(Math.log2(t.maxPlayers))} rodadas
             </div>
             ${t.prize ? `<div style="font-size:.62rem;color:var(--tg-gold,#c8a84b);margin-top:.2rem">🏆 ${t.prize}</div>` : ''}
             ${playerNames ? `<div style="font-size:.58rem;color:var(--txt3);margin-top:.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">👥 ${playerNames}</div>` : ''}

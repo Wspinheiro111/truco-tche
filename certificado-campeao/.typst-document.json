@@ -1,0 +1,10 @@
+{
+  "entry": "main.typ",
+  "metadata": {
+    "author": "Truco Tchê",
+    "subtitle": "Torneio Mano a Mano",
+    "title": "Certificado de Campeão"
+  },
+  "mode": "report",
+  "theme": "report-theme.typ"
+}

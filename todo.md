@@ -141,3 +141,17 @@
 - [x] Cobrir diversidade de avatares, presença e responsividade com testes e duas sessões independentes.
 - [x] Executar smoke real com dois clientes: avatares distintos, desconexão, reconexão e eventos de presença Socket.IO.
 - [x] Adicionar smoke reproduzível de presença via Socket.IO para impedir regressões do indicador da mesa.
+- [x] Substituído por decisão do usuário: mapear modalidades 1×1, 2×2 e 3×3; o escopo final é somente mano a mano.
+- [x] Validar vagas pares no torneio 1×1 e calcular uma chave eliminatória compatível.
+- [x] Não aplicável ao escopo final 1×1: sortear duplas ou trios.
+- [x] Sortear confrontos individuais e persistir a chave eliminatória 1×1.
+- [x] Integrar criação, inscrição, sorteio e chaveamento 1×1 à interface dos jogadores.
+- [x] Cobrir vagas inválidas, sorteios, chaves, mesas privadas e partidas com testes e smoke multiplayer.
+- [x] Gerar modelo de certificado gauchesco em PDF ao campeão, contendo nome do torneio, nome do jogo e dados do vencedor.
+- [x] Integrar a emissão automática do certificado PDF ao encerramento do torneio 1×1 e disponibilizá-lo apenas ao campeão.
+- [x] Criar uma mesa privada 1×1 para cada confronto ativo da chave e vincular seu resultado ao avanço automático do torneio.
+- [x] Permitir capacidade par configurável no torneio 1×1, com avanços automáticos transparentes quando a chave não for potência de dois.
+- [x] Recuperar por consulta persistida a mesa de torneio sorteada para jogadores conectados a instâncias Autoscale distintas.
+- [x] Cobrir a corrida em que o convidado entra primeiro e o anfitrião recupera a mesa já iniciada por snapshot persistido.
+- [x] Corrigir o fallback do certificado no cliente e validar emissão automática restrita ao campeão.
+- [x] Executar smoke real de torneio 1×1 entre duas instâncias, cobrindo mesa sorteada e recuperação do snapshot já iniciado.

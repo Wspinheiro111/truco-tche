@@ -1,0 +1,11 @@
+{
+  "task_kind": "new-document",
+  "output": "pdf",
+  "signals": ["certificate", "landscape", "gauchesca"],
+  "hard_constraints": ["one-page certificate", "Brazilian Portuguese", "champion name placeholder", "tournament name placeholder", "game name Truco Tchê"],
+  "content_features": {
+    "code_blocks": 0,
+    "defined_terms": 0,
+    "portrait_images": 0
+  }
+}

@@ -13,9 +13,11 @@ import {
 } from "../shared/gameEngine";
 import { areFriends, claimFriendGameInvite, createActiveOnlineGame, createFriendGameInvite, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame } from "./db";
 import { onlineRooms, onlineMatches, onlineTournaments, onlineTournamentPlayers, users } from "../drizzle/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
 import { getSessionCookieFromHeader } from "./_core/cookies";
+import { buildOneVsOneOpeningRound, OnlineTournamentMatch, roundCountForCapacity, validateOneVsOneCapacity } from "./onlineTournamentRules";
+import { createChampionCertificate } from "./tournamentCertificate";
 
 // Lazy DB helper
 async function db() {
@@ -472,18 +474,24 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Recover waiting room after a refresh or an Autoscale handoff ──
-    socket.on("recover_waiting_room", async (_data, cb) => {
+    socket.on("recover_waiting_room", async (data: { code?: string } | undefined, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
+      const roomQuery = and(
+        eq(onlineRooms.hostId, user.userId),
+        sql`${onlineRooms.status} IN ('waiting', 'playing')`,
+        data?.code ? eq(onlineRooms.code, data.code.toUpperCase()) : undefined,
+      );
       const [storedRoom] = await (await db()).select().from(onlineRooms)
-        .where(and(eq(onlineRooms.hostId, user.userId), eq(onlineRooms.status, "waiting")))
+        .where(roomQuery)
         .orderBy(desc(onlineRooms.createdAt))
         .limit(1);
       if (!storedRoom) return cb?.({ found: false });
 
+      const isWaiting = storedRoom.status === "waiting";
       const elapsedMs = Date.now() - new Date(storedRoom.createdAt).getTime();
       const remainingMs = ROOM_WAIT_TIMEOUT_MS - elapsedMs;
-      if (isWaitingRoomExpired(storedRoom.createdAt)) {
+      if (isWaiting && isWaitingRoomExpired(storedRoom.createdAt)) {
         await (await db()).update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, storedRoom.code));
         return cb?.({ found: false });
       }
@@ -495,9 +503,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
           hostSocket: socket.id,
           guestSocket: null,
           hostUserId: storedRoom.hostId,
-          guestUserId: null,
+          guestUserId: storedRoom.guestId ?? null,
           hostName: storedRoom.hostName,
-          guestName: null,
+          guestName: storedRoom.guestName ?? null,
           mode: storedRoom.mode,
           stakeTier: storedRoom.stakeTier,
           region: storedRoom.region,
@@ -505,8 +513,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
           privateInviteeId: storedRoom.privateInviteeId ?? null,
           state: null,
           playerMap: { p1: socket.id, p2: "" },
-          userMap: { p1: storedRoom.hostId, p2: 0 },
-          nameMap: { p1: storedRoom.hostName, p2: "" },
+          userMap: { p1: storedRoom.hostId, p2: storedRoom.guestId ?? 0 },
+          nameMap: { p1: storedRoom.hostName, p2: storedRoom.guestName ?? "" },
           startTime: 0,
           spectators: new Set(),
           tournamentId: storedRoom.tournamentId,
@@ -525,17 +533,19 @@ export function initSocketServer(httpServer: HttpServer): Server {
       socketToRoom.set(socket.id, room.code);
       userToRoom.set(user.userId, room.code);
       socket.join(room.code);
-      room.waitingTimer = setTimeout(() => {
-        const active = rooms.get(room!.code);
-        if (!active || active.guestSocket) return;
-        io.to(active.hostSocket).emit("room_timeout", { code: active.code });
-        rooms.delete(active.code);
-        socketToRoom.delete(active.hostSocket);
-        userToRoom.delete(active.hostUserId);
-        void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, active.code))).catch(() => {});
-        broadcastWaitingRooms();
-      }, remainingMs);
-      cb?.({ found: true, code: room.code, mode: room.mode, stakeTier: room.stakeTier, region: room.region });
+      if (isWaiting) {
+        room.waitingTimer = setTimeout(() => {
+          const active = rooms.get(room!.code);
+          if (!active || active.guestSocket) return;
+          io.to(active.hostSocket).emit("room_timeout", { code: active.code });
+          rooms.delete(active.code);
+          socketToRoom.delete(active.hostSocket);
+          userToRoom.delete(active.hostUserId);
+          void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, active.code))).catch(() => {});
+          broadcastWaitingRooms();
+        }, remainingMs);
+      }
+      cb?.({ found: true, started: !isWaiting, code: room.code, mode: room.mode, stakeTier: room.stakeTier, region: room.region });
     });
 
     // ── Join Room ──
@@ -1087,8 +1097,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
 
-      const maxP = [4, 8, 16].includes(data.maxPlayers) ? data.maxPlayers : 8;
-      const totalRounds = Math.log2(maxP);
+      const maxP = Number(data.maxPlayers);
+      const capacityError = validateOneVsOneCapacity(maxP);
+      if (capacityError) return cb?.({ error: capacityError });
+      const totalRounds = roundCountForCapacity(maxP);
 
       try {
         const [result] = await (await db()).insert(onlineTournaments).values({
@@ -1109,9 +1121,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
         });
 
         socket.join(`tournament_${result.id}`);
-        cb?.({ tournamentId: result.id });
+        cb?.({ tournamentId: result.id, maxPlayers: maxP, format: "1v1" });
         io.emit("tournament_created", {
-          id: result.id, name: data.name, maxPlayers: maxP,
+          id: result.id, name: data.name, maxPlayers: maxP, format: "1v1",
           creatorName: user.userName, currentPlayers: 1,
         });
 
@@ -1191,6 +1203,57 @@ export function initSocketServer(httpServer: HttpServer): Server {
       } catch (e: any) { cb?.({ error: e.message }); }
     });
 
+    // ── Tournament: recover a ready private match from persistent storage ──
+    socket.on("get_tournament_match", async (_data, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      try {
+        const [matchRoom] = await (await db()).select().from(onlineRooms)
+          .where(and(
+            sql`${onlineRooms.status} IN ('waiting', 'playing')`,
+            sql`${onlineRooms.tournamentId} IS NOT NULL`,
+            or(eq(onlineRooms.hostId, user.userId), eq(onlineRooms.privateInviteeId, user.userId)),
+          ))
+          .orderBy(desc(onlineRooms.createdAt))
+          .limit(1);
+        if (!matchRoom) return cb?.({ found: false });
+        cb?.({
+          found: true,
+          tournamentId: matchRoom.tournamentId,
+          roomCode: matchRoom.code,
+          status: matchRoom.status,
+          opponentName: matchRoom.hostId === user.userId ? matchRoom.guestName : matchRoom.hostName,
+          role: matchRoom.hostId === user.userId ? "host" : "guest",
+        });
+      } catch (error) {
+        console.error("[Socket] get_tournament_match failed:", error);
+        cb?.({ error: "Não foi possível recuperar o confronto do torneio" });
+      }
+    });
+
+    socket.on("get_tournament_certificate", async (data: { tournamentId?: number }, cb) => {
+      const user = socketToUser.get(socket.id);
+      const tournamentId = Number(data?.tournamentId);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      if (!Number.isInteger(tournamentId) || tournamentId <= 0) return cb?.({ error: "Torneio inválido" });
+      try {
+        const [tournament] = await (await db()).select().from(onlineTournaments)
+          .where(eq(onlineTournaments.id, tournamentId));
+        if (!tournament || tournament.status !== "completed" || !tournament.championCertificateUrl) {
+          return cb?.({ error: "Certificado indisponível" });
+        }
+        const bracket = tournament.bracketData ? JSON.parse(tournament.bracketData) as { rounds?: OnlineTournamentMatch[][] } : null;
+        const finalMatch = bracket?.rounds?.at(-1)?.[0];
+        if (!finalMatch?.winnerId || finalMatch.winnerId !== user.userId) {
+          return cb?.({ error: "Somente o campeão pode acessar este certificado" });
+        }
+        cb?.({ certificateUrl: tournament.championCertificateUrl, tournamentName: tournament.name });
+      } catch (error) {
+        console.error("[Socket] get_tournament_certificate failed:", error);
+        cb?.({ error: "Não foi possível recuperar o certificado" });
+      }
+    });
+
     // ── List tournaments ──
     socket.on("list_tournaments", async (_data, cb) => {
       try {
@@ -1262,7 +1325,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
       // Em Autoscale, a nova conexão pode chegar a outra instância. Nesse caso,
       // a fonte de verdade é o snapshot ativo persistido, não o Map local.
-      if (!room) {
+      if (!room || !room.state) {
         const snapshot = await getActiveOnlineGameForUser(userId);
         if (!snapshot || snapshot.status !== "active") return cb?.({ error: "No active game found" });
         roomCode = snapshot.roomCode;
@@ -1784,33 +1847,23 @@ async function startOnlineTournament(io: Server, tournamentId: number) {
   const players = await d3.select().from(onlineTournamentPlayers)
     .where(eq(onlineTournamentPlayers.tournamentId, tournamentId));
 
-  // Shuffle players for seeding
-  const shuffled = [...players].sort(() => Math.random() - 0.5);
-  shuffled.forEach((p, i) => {
+  const bracket = buildOneVsOneOpeningRound(players.map((player) => ({
+    userId: player.userId,
+    userName: player.userName,
+  })));
+  const drawnOrder = bracket.flatMap((match) => [match.p1UserId, match.p2UserId].filter((id): id is number => id !== null));
+  await Promise.all(drawnOrder.map((userId, index) =>
     d3.update(onlineTournamentPlayers)
-      .set({ seed: i + 1 })
-      .where(eq(onlineTournamentPlayers.id, p.id))
-      .catch(() => {});
-  });
+      .set({ seed: index + 1 })
+      .where(and(eq(onlineTournamentPlayers.tournamentId, tournamentId), eq(onlineTournamentPlayers.userId, userId))),
+  ));
 
-  // Build bracket: pair 1v2, 3v4, etc.
-  // Use null (not 0) for empty slots — 0 could collide with real user IDs.
-  const bracket: { round: number; matchIndex: number; p1UserId: number; p2UserId: number | null; p1Name: string; p2Name: string | null; winnerId?: number }[] = [];
-  for (let i = 0; i < shuffled.length; i += 2) {
-    bracket.push({
-      round: 0,
-      matchIndex: Math.floor(i / 2),
-      p1UserId: shuffled[i].userId,
-      p2UserId: shuffled[i + 1]?.userId ?? null,
-      p1Name: shuffled[i].userName,
-      p2Name: shuffled[i + 1]?.userName ?? null,
-    });
-  }
+  await prepareTournamentRound(d3, tournamentId, bracket);
 
   await d3.update(onlineTournaments)
     .set({
       status: "active",
-      bracketData: JSON.stringify({ rounds: [bracket], currentRound: 0 }),
+      bracketData: JSON.stringify({ format: "1v1", drawCompletedAt: new Date().toISOString(), rounds: [bracket], currentRound: 0 }),
     })
     .where(eq(onlineTournaments.id, tournamentId));
 
@@ -1822,9 +1875,51 @@ async function startOnlineTournament(io: Server, tournamentId: number) {
 
   // Create rooms for first round matches
   for (const match of bracket) {
-    if (match.p2UserId === null) continue; // BYE = auto-advance (p2 not yet determined)
-    // Rooms will be created when both players connect
+    notifyTournamentMatchReady(io, tournamentId, match);
   }
+}
+
+/** Creates the private 1×1 room that belongs to each playable bracket match. */
+async function prepareTournamentRound(
+  database: Awaited<ReturnType<typeof db>>,
+  tournamentId: number,
+  matches: OnlineTournamentMatch[],
+) {
+  for (const match of matches) {
+    if (match.p2UserId === null || match.roomCode) continue;
+    const roomCode = genCode();
+    await database.insert(onlineRooms).values({
+      code: roomCode,
+      hostId: match.p1UserId,
+      hostName: match.p1Name,
+      guestId: null,
+      guestName: null,
+      mode: "1v1",
+      stakeTier: "amistoso",
+      region: "BR",
+      isPrivate: true,
+      privateInviteeId: match.p2UserId,
+      status: "waiting",
+      tournamentId,
+    });
+    match.roomCode = roomCode;
+  }
+}
+
+/** Delivers a private match code only to the two players assigned to it. */
+function notifyTournamentMatchReady(io: Server, tournamentId: number, match: OnlineTournamentMatch) {
+  if (!match.roomCode || match.p2UserId === null) return;
+  socketToUser.forEach((connectedUser, socketId) => {
+    if (connectedUser.userId !== match.p1UserId && connectedUser.userId !== match.p2UserId) return;
+    io.to(socketId).emit("tournament_match_ready", {
+      tournamentId,
+      roomCode: match.roomCode,
+      opponentName: connectedUser.userId === match.p1UserId ? match.p2Name : match.p1Name,
+      role: connectedUser.userId === match.p1UserId ? "host" : "guest",
+      round: match.round,
+      matchIndex: match.matchIndex,
+    });
+  });
 }
 
 // ── Online Tournament: advance bracket after a match ──
@@ -1835,7 +1930,7 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
       .where(eq(onlineTournaments.id, tournamentId));
     if (!tournament || !tournament.bracketData) return;
 
-    let bracketData: { rounds: { round: number; matchIndex: number; p1UserId: number; p2UserId: number; p1Name: string; p2Name: string; winnerId?: number; winnerName?: string }[][]; currentRound: number };
+    let bracketData: { rounds: OnlineTournamentMatch[][]; currentRound: number };
     try {
       bracketData = JSON.parse(tournament.bracketData);
     } catch { return; }
@@ -1884,11 +1979,24 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
 
       if (winners.length === 1) {
         // Tournament complete!
+        let certificate: { key: string; url: string } | null = null;
+        try {
+          certificate = await createChampionCertificate({
+            tournamentId,
+            tournamentName: tournament.name,
+            championName: winners[0].userName,
+            completedAt: new Date(),
+          });
+        } catch (certificateError) {
+          console.error(`[Tournament] Certificate generation failed for ${tournamentId}:`, certificateError);
+        }
         await d.update(onlineTournaments)
           .set({
             status: "completed",
             bracketData: JSON.stringify(bracketData),
             completedAt: new Date(),
+            championCertificateKey: certificate?.key ?? null,
+            championCertificateUrl: certificate?.url ?? null,
           })
           .where(eq(onlineTournaments.id, tournamentId));
 
@@ -1896,7 +2004,19 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
           tournamentId,
           championId: winners[0].userId,
           championName: winners[0].userName,
+          certificateReady: Boolean(certificate),
         });
+        if (certificate) {
+          socketToUser.forEach((connectedUser, socketId) => {
+            if (connectedUser.userId === winners[0].userId) {
+              io.to(socketId).emit("tournament_certificate_ready", {
+                tournamentId,
+                tournamentName: tournament.name,
+                certificateUrl: certificate!.url,
+              });
+            }
+          });
+        }
         // Carry full bracket in payload so clients do not need an extra fetch
         io.to(`tournament_${tournamentId}`).emit("tournament_bracket_updated", {
           tournamentId,
@@ -1907,7 +2027,7 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
 
       // Build next round — use null for empty slots, never 0
       const nextRoundIndex = currentRound + 1;
-      const nextRound: typeof currentMatches = [];
+      const nextRound: OnlineTournamentMatch[] = [];
       for (let i = 0; i < winners.length; i += 2) {
         nextRound.push({
           round: nextRoundIndex,
@@ -1922,6 +2042,8 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
       bracketData.rounds.push(nextRound);
       bracketData.currentRound = nextRoundIndex;
 
+      await prepareTournamentRound(d, tournamentId, nextRound);
+
       await d.update(onlineTournaments)
         .set({
           bracketData: JSON.stringify(bracketData),
@@ -1934,6 +2056,7 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
         round: nextRoundIndex,
         matches: nextRound,
       });
+      nextRound.forEach((match) => notifyTournamentMatchReady(io, tournamentId, match));
     } else {
       // Just update bracketData with the winner mark
       await d.update(onlineTournaments)
