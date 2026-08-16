@@ -46,6 +46,18 @@ describe("Game Engine", () => {
     expect(result.state.table.length).toBeGreaterThan(0);
   });
 
+  it("keeps both cards of a resolved trick available for the visual result", () => {
+    const dealt = dealHand(createGameState());
+    const firstPlayer = dealt.turn;
+    const secondPlayer = firstPlayer === "p1" ? "p2" : "p1";
+    const afterFirst = playCard(dealt, firstPlayer, dealt.hands[firstPlayer][0].id).state;
+    const resolved = playCard(afterFirst, secondPlayer, afterFirst.hands[secondPlayer][0].id);
+
+    expect(resolved.roundResult).toBeDefined();
+    expect(resolved.completedTrick).toHaveLength(2);
+    expect(resolved.completedTrick?.map(entry => entry.player).sort()).toEqual(["p1", "p2"]);
+  });
+
   it("rejects playing a card when it is not the player's turn", () => {
     const dealt = dealHand(createGameState());
     const otherPlayer = dealt.turn === "p1" ? "p2" : "p1";

@@ -340,7 +340,7 @@ export function playCard(
   state: GameState,
   player: Player,
   cardId: string
-): { state: GameState; roundResult?: RoundResult; handWinner?: Player; gameWinner?: Player } {
+): { state: GameState; roundResult?: RoundResult; completedTrick?: TableEntry[]; handWinner?: Player; gameWinner?: Player } {
   if (state.phase !== 'playing' || state.turn !== player) {
     throw new Error(`Not ${player}'s turn`);
   }
@@ -395,6 +395,7 @@ export function playCard(
             winner: actualHandWinner,
           },
           roundResult,
+          completedTrick: newTable,
           handWinner: actualHandWinner,
           gameWinner: actualHandWinner,
         };
@@ -410,6 +411,7 @@ export function playCard(
           turnStartedAt: Date.now(),
         },
         roundResult,
+        completedTrick: newTable,
         handWinner: actualHandWinner,
       };
     }
@@ -426,6 +428,7 @@ export function playCard(
         turnStartedAt: Date.now(),
       },
       roundResult,
+      completedTrick: newTable,
     };
   }
 

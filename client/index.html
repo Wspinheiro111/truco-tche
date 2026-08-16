@@ -245,9 +245,18 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
 }
 #online-game .hand{gap:.48rem}
 #online-game .hc{
-  width:var(--cw);height:var(--ch);
+  width:clamp(54px,18vw,82px);height:clamp(82px,26vw,122px);
   animation:cardDeal .28s cubic-bezier(.34,1.4,.64,1) both;
 }
+#online-game .hand,#p-hand{width:min(100%,480px);padding:0 .55rem .35rem;overflow:visible}
+#online-game .og-my-area{overflow:visible}
+.og-trick-result{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;max-width:132px;padding:.34rem .55rem;border-radius:999px;background:rgba(8,26,12,.88);border:1px solid rgba(255,255,255,.35);box-shadow:0 4px 16px rgba(0,0,0,.42);color:#fff;font-size:.6rem;font-weight:800;letter-spacing:.02em;text-align:center;pointer-events:none;animation:fadeUp .2s ease}
+.og-trick-result.me{border-color:rgba(118,240,154,.9);color:#b5ffcb;background:rgba(16,77,39,.92)}
+.og-trick-result.opp{border-color:rgba(255,143,154,.85);color:#ffd2d8;background:rgba(107,32,42,.92)}
+.og-trick-result.draw{border-color:rgba(255,215,0,.85);color:#ffef9d;background:rgba(92,71,11,.92)}
+.tc.trick-winner{border-color:#b9ffca;box-shadow:0 0 0 2px rgba(79,230,121,.42),0 6px 18px rgba(0,0,0,.46);transform:translateY(-4px)}
+.tc.trick-loser{opacity:.72;filter:saturate(.72)}
+@media (max-width:390px){#online-game .hand{gap:.28rem;padding-left:.35rem;padding-right:.35rem}#online-game .hc{width:clamp(52px,25vw,68px);height:clamp(78px,35vw,100px)}.og-trick-result{font-size:.55rem;max-width:116px}}
 #online-game .hc:nth-child(1){animation-delay:.04s}
 #online-game .hc:nth-child(2){animation-delay:.09s}
 #online-game .hc:nth-child(3){animation-delay:.14s}
@@ -2128,6 +2137,7 @@ body, .scr {
           <span class="og-vira-card" id="og-vira-card"></span>
         </div>
         <div class="felt-vs" style="display:none" id="og-felt-vs">⚔</div>
+        <div class="og-trick-result" id="og-trick-result" style="display:none" role="status" aria-live="polite"></div>
         <div class="fz"><div class="fz-lbl">Você</div><div class="fz-cards" id="og-table-me"></div></div>
       </div>
       <!-- Sponsor na lateral esquerda da mesa -->
@@ -3264,7 +3274,9 @@ function checkRound(){
     else if(huC.card.tv>aiC.card.tv)winner='hu';
     else winner='draw';
     TT_G.rw.push(winner);
-    addHist(winner==='draw'?'Empate na rodada.':(winner==='hu'?'Você':'Bagual')+' ganhou a rodada.');
+    const roundMessage=winner==='draw'?'Empate na rodada.':(winner==='hu'?'Você ganhou a rodada!':'Bagual ganhou a rodada.');
+    addHist(roundMessage);
+    setPh(winner==='draw'?'⚖ Empate na vaza':(winner==='hu'?'🏆 Você ganhou a vaza!':'🏆 Bagual ganhou a vaza.'),winner==='hu'?'ph-play':'ph-wait');
     if(winner==='hu')SFX.win();else if(winner==='ai')SFX.lose();
     if(winner==='draw')showCoachTip('round_draw');
     renderPips();
@@ -3292,7 +3304,7 @@ function checkRound(){
       setPh(nt==='hu'?'\u25b6 Sua vez':'\u23f3 Bagual pensa...',nt==='hu'?'ph-play':'ph-wait');
       if(nt==='hu')startTimer();else setTimeout(aiTurn,aiDelay(900));
     }
-  },1350);
+  },1850);
 }
 
 function endGame(winner){
@@ -7748,6 +7760,9 @@ function ensureSocket() {
       restorePendingOnlineNegotiation(data);
     }
     sioGameState = data;
+    if (data && Array.isArray(data.roundWins) && data.roundWins.length === 0 && window._ogResolvedTrick) {
+      clearOnlineResolvedTrick();
+    }
     renderOnlineGame(data);
   });
 
@@ -7756,6 +7771,7 @@ function ensureSocket() {
     const msg = data.result === 'draw' ? 'Empate na rodada!' :
       data.result === sioRole ? 'Você venceu a rodada!' : 'Adversário venceu a rodada!';
     toast(msg, data.result === sioRole ? 'win' : data.result === 'draw' ? 'info' : 'lose');
+    showOnlineResolvedTrick(data);
   });
 
   sio.on('hand_winner', (data) => {
@@ -8985,6 +9001,25 @@ function renderTournamentBracket(data) {
 
 const SUIT_SYMBOLS = { Espadas: '🗡️', Bastos: '🪵', Copas: '🏆', Ouros: '🪙', espadas: '🗡️', bastos: '🪵', copas: '🏆', ouros: '🪙' };
 const CARD_VALUES_DISPLAY = { 1:'A', 2:'2', 3:'3', 4:'4', 5:'5', 6:'6', 7:'7', 10:'S', 11:'C', 12:'R' };
+window._ogResolvedTrick = window._ogResolvedTrick || null;
+window._ogResolvedTrickTimer = window._ogResolvedTrickTimer || null;
+
+function clearOnlineResolvedTrick() {
+  if (window._ogResolvedTrickTimer) clearTimeout(window._ogResolvedTrickTimer);
+  window._ogResolvedTrickTimer = null;
+  window._ogResolvedTrick = null;
+}
+
+function showOnlineResolvedTrick(data) {
+  if (!data || !Array.isArray(data.cards) || data.cards.length < 2) return;
+  clearOnlineResolvedTrick();
+  window._ogResolvedTrick = { cards: data.cards, result: data.result };
+  if (sioGameState) renderOnlineGame(sioGameState);
+  window._ogResolvedTrickTimer = setTimeout(function() {
+    clearOnlineResolvedTrick();
+    if (sioGameState) renderOnlineGame(sioGameState);
+  }, 1850);
+}
 
 function renderOnlineGame(state) {
   // ── Computed flags (must be first) ──
@@ -9154,11 +9189,14 @@ function renderOnlineGame(state) {
   const tableOppEl = document.getElementById('og-table-opp');
   tableMeEl.innerHTML = '';
   tableOppEl.innerHTML = '';
-  if (state.table) {
-    state.table.forEach(tc => {
+  const resolvedTrick = (!state.table || state.table.length === 0) ? window._ogResolvedTrick : null;
+  const tableCards = state.table && state.table.length ? state.table : (resolvedTrick ? resolvedTrick.cards : []);
+  if (tableCards) {
+    tableCards.forEach(tc => {
       const isMe = tc.player === state.myRole;
       const d = document.createElement('div');
       d.className = 'tc';
+      if (resolvedTrick && resolvedTrick.result !== 'draw') d.classList.add(tc.player === resolvedTrick.result ? 'trick-winner' : 'trick-loser');
       if (tc.card) {
         const img = document.createElement('img');
         img.src = cimg(tc.card);
@@ -9168,10 +9206,22 @@ function renderOnlineGame(state) {
       (isMe ? tableMeEl : tableOppEl).appendChild(d);
     });
   }
+  const trickResultEl = document.getElementById('og-trick-result');
+  if (trickResultEl) {
+    if (resolvedTrick) {
+      const isDraw = resolvedTrick.result === 'draw';
+      const isMeWinner = resolvedTrick.result === state.myRole;
+      trickResultEl.textContent = isDraw ? '⚖ Empate na vaza' : (isMeWinner ? '🏆 Você ganhou a vaza' : '🏆 Adversário ganhou a vaza');
+      trickResultEl.className = 'og-trick-result ' + (isDraw ? 'draw' : (isMeWinner ? 'me' : 'opp'));
+      trickResultEl.style.display = '';
+    } else {
+      trickResultEl.style.display = 'none';
+    }
+  }
   // ── Action buttons (Truco / Envido / Correr bar) ──
   const actionsEl = document.getElementById('og-actions');
   actionsEl.innerHTML = '';
-  if (isMyTurn && state.phase === 'playing') {
+  if (!resolvedTrick && isMyTurn && state.phase === 'playing') {
     // Truco button
     if (state.canTruco) {
       const trucoBtn = document.createElement('button');

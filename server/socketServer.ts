@@ -758,6 +758,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           io.to(room.code).emit("round_result", {
             result: result.roundResult,
             roundWins: room.state.roundWins,
+            cards: result.completedTrick || [],
           });
         }
         if (result.handWinner) {

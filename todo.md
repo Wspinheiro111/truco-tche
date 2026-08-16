@@ -97,3 +97,11 @@
 - [x] Executar smoke real: falha do backend emite rules_test_failure e alerta aparece na sessão administrativa conectada.
 - [x] Validar E2E que uma falha real chega à interface especificamente via evento Socket.IO, com o polling desativado.
 - [x] Validar o caminho compartilhado do banco com listener Socket.IO desativado, comprovando a detecção do fallback persistente entre instâncias.
+- [x] Exibir todas as cartas da mão do jogador integralmente, sem corte, em telas mobile e desktop.
+- [x] Manter as cartas jogadas visíveis na mesa até a conclusão e identificação do vencedor da vaza.
+- [x] Exibir de forma clara o resultado da vaza e preservar a leitura visual das cartas antes da próxima rodada.
+- [x] Cobrir a nova apresentação de cartas com testes e validação responsiva da jogabilidade.
+- [x] Validar a mão e a mesa em 375 px e 1280 px, sem corte ou overflow das cartas.
+- [x] Adicionar teste de contrato do cliente para retenção visual da vaza e indicador de vencedor on-line.
+- [x] Medir explicitamente a mão e a mesa em 1280 px, confirmando que as cartas e a vaza não extrapolam seus contêineres.
+- [x] Repetir a medição desktop após estabilização do layout, com tolerância de subpixel, e registrar resultado objetivo positivo.
