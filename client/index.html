@@ -153,8 +153,14 @@ html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var
   display:flex;align-items:center;justify-content:center;
   font-size:1.4rem;flex-shrink:0;
   box-shadow:0 3px 12px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.08);
-  transition:border-color .3s;
+  transition:border-color .3s;position:relative;overflow:visible;
 }
+.og-avatar-media{width:100%;height:100%;display:block;object-fit:cover;border-radius:9px;background:#2a1a0a}
+.og-presence{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border-radius:50%;border:2px solid #16100a;box-shadow:0 0 0 1px rgba(255,255,255,.12);z-index:2}
+.og-presence.online{background:#47dc7d;box-shadow:0 0 10px rgba(71,220,125,.9)}
+.og-presence.reconnecting{background:#f8c648;animation:og-presence-pulse 1s ease-in-out infinite}
+.og-presence.offline{background:#a99f92;box-shadow:none}
+@keyframes og-presence-pulse{50%{transform:scale(.72);opacity:.65}}
 .og-hdr-avatar.active{border-color:rgba(200,150,10,.9);box-shadow:0 3px 12px rgba(0,0,0,.5),0 0 12px rgba(200,150,10,.3)}
 .og-hdr-avatar.opp{
   border-color:rgba(255,100,100,.4);
@@ -7789,6 +7795,7 @@ function ensureSocket() {
       scheduleOnlineStateSync();
       restorePendingOnlineNegotiation(data);
     }
+    window._ogOpponentPresence = 'online';
     sioGameState = data;
     if (data && Array.isArray(data.roundWins) && data.roundWins.length === 0 && window._ogResolvedTrick) {
       clearOnlineResolvedTrick();
@@ -7875,6 +7882,8 @@ function ensureSocket() {
 
   sio.on('opponent_disconnected_temp', (data) => {
     // Opponent disconnected but has a grace period to reconnect
+    window._ogOpponentPresence = 'reconnecting';
+    if (sioGameState) renderOnlineGame(sioGameState);
     if (sioOpponentGracePeriod) clearInterval(sioOpponentGracePeriod);
     let remaining = Math.round(data.gracePeriodMs / 1000);
     showConnectionBanner('opponent_away', `⏳ ${data.name} desconectou. Aguardando reconexão... ${remaining}s`);
@@ -7889,12 +7898,16 @@ function ensureSocket() {
     }, 1000);
   });
   sio.on('opponent_reconnected', (data) => {
+    window._ogOpponentPresence = 'online';
+    if (sioGameState) renderOnlineGame(sioGameState);
     if (sioOpponentGracePeriod) { clearInterval(sioOpponentGracePeriod); sioOpponentGracePeriod = null; }
     showConnectionBanner('connected', `✅ ${data.name} reconectou!`);
     setTimeout(() => showConnectionBanner('hidden'), 3000);
     toast(`${data.name} voltou à partida!`, 'win');
   });
   sio.on('opponent_disconnected', (data) => {
+    window._ogOpponentPresence = 'offline';
+    if (sioGameState) renderOnlineGame(sioGameState);
     if (sioOpponentGracePeriod) { clearInterval(sioOpponentGracePeriod); sioOpponentGracePeriod = null; }
     showConnectionBanner('hidden');
     toast(`Adversário desconectou! ${data.winnerName} venceu`, 'win');
@@ -9053,6 +9066,41 @@ function showOnlineResolvedTrick(data) {
   }, 1850);
 }
 
+const ONLINE_GAME_AVATARS = [
+  { id: 'brabao-apartamento', src: '/manus-storage/brabao-apartamento_bc25f853.png', label: 'Brabão de Apartamento' },
+  { id: 'gaucho-apartamento', src: '/manus-storage/gaucho-apartamento_3a16a879.png', label: 'Gaúcho de Apartamento' },
+  { id: 'gaucho-diferente', src: '/manus-storage/gaucho-diferente_28715407.png', label: 'Gaúcho Diferente' },
+  { id: 'gaucho-colorido', src: '/manus-storage/gaucho-colorido_bad96dcc.png', label: 'Gaúcho Colorido' },
+  { id: 'prenda-campo', src: '/manus-storage/prenda-campo_c275a75c.png', label: 'Prenda do Campo' },
+  { id: 'debochada', src: '/manus-storage/debochada_e2217d75.png', label: 'Debochada' },
+  { id: 'truqueiro', src: '/manus-storage/truqueiro_524cf267.png', label: 'Truqueiro' },
+  { id: 'gaiteira', src: '/manus-storage/gaiteira_f4a9fc88.png', label: 'Gaiteira' },
+  { id: 'churrasqueiro', src: '/manus-storage/churrasqueiro_052a93c8.png', label: 'Churrasqueiro' },
+];
+
+function onlineAvatarSeed(value) {
+  let hash = 2166136261;
+  const text = String(value || 'truco-tche');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
+}
+
+function getOnlineAvatarForRole(roomCode, role) {
+  const firstIndex = onlineAvatarSeed(roomCode) % ONLINE_GAME_AVATARS.length;
+  const secondIndex = (firstIndex + 1) % ONLINE_GAME_AVATARS.length;
+  return ONLINE_GAME_AVATARS[role === 'p2' ? secondIndex : firstIndex];
+}
+
+function renderOnlinePlayerAvatar(element, avatar, presence, playerName) {
+  if (!element || !avatar) return;
+  const normalizedPresence = ['online', 'reconnecting', 'offline'].includes(presence) ? presence : 'online';
+  element.setAttribute('aria-label', `${playerName}: ${normalizedPresence === 'online' ? 'on-line' : normalizedPresence === 'reconnecting' ? 'reconectando' : 'desconectado'}`);
+  element.innerHTML = `<img class="og-avatar-media" src="${avatar.src}" alt="Avatar ${avatar.label}"><span class="og-presence ${normalizedPresence}" aria-hidden="true"></span>`;
+}
+
 function renderOnlineGame(state) {
   // ── Computed flags (must be first) ──
   const isMyTurn = state.currentPlayer === state.myRole && state.phase === 'playing';
@@ -9090,6 +9138,8 @@ function renderOnlineGame(state) {
   const avatarOpp = document.getElementById('og-avatar-opp');
   if (avatarMe) avatarMe.className = 'og-hdr-avatar' + (isMyTurn ? ' active' : '');
   if (avatarOpp) avatarOpp.className = 'og-hdr-avatar opp' + (!isMyTurn && state.phase === 'playing' ? ' active' : '');
+  renderOnlinePlayerAvatar(avatarMe, getOnlineAvatarForRole(state.roomCode, state.myRole), 'online', state.myName || 'Você');
+  renderOnlinePlayerAvatar(avatarOpp, getOnlineAvatarForRole(state.roomCode, state.myRole === 'p1' ? 'p2' : 'p1'), window._ogOpponentPresence || 'online', state.opponentName || 'Adversário');
   // ── Turn Timer Bar ──
   const turnTimerEl = document.getElementById('og-turn-timer');
   const turnTimerBar = document.getElementById('og-turn-timer-bar');

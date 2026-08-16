@@ -134,3 +134,10 @@
 - [x] Inspecionar em largura mobile real o placar, ações, mão e vaza no novo layout.
 - [x] Adicionar medições automatizadas de viewport mobile para placar, ações, mão e área da vaza, confirmando ausência de overflow.
 - [x] Executar auditoria mobile real em navegador headless e registrar todos os campos aprovados do layout (375×812; placar, ações, mão, mesa e cartas aprovados; 3 ações disponíveis).
+- [x] Apresentar opções visuais de avatares para escolha do usuário antes da implementação (coleção fornecida aprovada).
+- [x] Preparar os nove avatares diversos fornecidos como ativos individuais reutilizáveis na mesa.
+- [x] Integrar seleção não repetida dos avatares aos dois jogadores na mesa, preservando o layout responsivo.
+- [x] Exibir indicador visual de presença on-line, reconectando e desconectado ao lado de cada avatar.
+- [x] Cobrir diversidade de avatares, presença e responsividade com testes e duas sessões independentes.
+- [x] Executar smoke real com dois clientes: avatares distintos, desconexão, reconexão e eventos de presença Socket.IO.
+- [x] Adicionar smoke reproduzível de presença via Socket.IO para impedir regressões do indicador da mesa.

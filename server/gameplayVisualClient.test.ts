@@ -48,4 +48,21 @@ describe("gameplay visual contract", () => {
     expect(html).toContain("cardsVisible: cards.length === 3 && cards.every(withinViewport)");
     expect(html).toContain('document.body.dataset.onlineLayoutAudit = JSON.stringify(result)');
   });
+
+  it("usa a coleção fornecida de avatares sem repetir os dois jogadores da mesma partida", () => {
+    expect(html).toContain("const ONLINE_GAME_AVATARS = [");
+    expect(html).toContain("brabao-apartamento_bc25f853.png");
+    expect(html).toContain("churrasqueiro_052a93c8.png");
+    expect(html).toContain("ONLINE_GAME_AVATARS[role === 'p2' ? secondIndex : firstIndex]");
+    expect(html).toContain("const secondIndex = (firstIndex + 1) % ONLINE_GAME_AVATARS.length");
+  });
+
+  it("mostra um indicador acessível de presença para o adversário", () => {
+    expect(html).toContain(".og-presence.online");
+    expect(html).toContain(".og-presence.reconnecting");
+    expect(html).toContain(".og-presence.offline");
+    expect(html).toContain("window._ogOpponentPresence = 'reconnecting'");
+    expect(html).toContain("window._ogOpponentPresence = 'online'");
+    expect(html).toContain("window._ogOpponentPresence = 'offline'");
+  });
 });
