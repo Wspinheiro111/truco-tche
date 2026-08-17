@@ -1297,7 +1297,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
-    socket.on("duplicate_tournament", async (data: { tournamentId: number }, cb) => {
+    socket.on("duplicate_tournament", async (data: { tournamentId: number; name?: string; prize?: string | null; maxPlayers?: number; scheduledStartAt?: string | null }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
       try {
@@ -1307,15 +1307,22 @@ export function initSocketServer(httpServer: HttpServer): Server {
         if (!source) return cb?.({ error: "Torneio não encontrado" });
         if (source.creatorId !== user.userId) return cb?.({ error: "Somente o organizador pode duplicar o torneio" });
         if (source.status !== "completed") return cb?.({ error: "Apenas torneios encerrados podem ser duplicados" });
-        const nextSchedule = source.scheduledStartAt && source.scheduledStartAt.getTime() > Date.now()
-          ? source.scheduledStartAt
-          : null;
+        const maxPlayers = data.maxPlayers === undefined ? source.maxPlayers : Number(data.maxPlayers);
+        const capacityError = validateOneVsOneCapacity(maxPlayers);
+        if (capacityError) return cb?.({ error: capacityError });
+        const name = data.name === undefined ? `${source.name} — Nova edição` : data.name.trim();
+        if (!name) return cb?.({ error: "Informe o nome do torneio" });
+        const nextSchedule = data.scheduledStartAt === undefined
+          ? (source.scheduledStartAt && source.scheduledStartAt.getTime() > Date.now() ? source.scheduledStartAt : null)
+          : data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
+        if (nextSchedule && Number.isNaN(nextSchedule.getTime())) return cb?.({ error: "Horário de referência inválido" });
+        const prize = data.prize === undefined ? source.prize : data.prize?.trim() || null;
         const [result] = await d.insert(onlineTournaments).values({
           creatorId: user.userId,
-          name: `${source.name} — Nova edição`,
-          maxPlayers: source.maxPlayers,
-          totalRounds: source.totalRounds,
-          prize: source.prize,
+          name,
+          maxPlayers,
+          totalRounds: roundCountForCapacity(maxPlayers),
+          prize,
           scheduledStartAt: nextSchedule,
           status: "registering",
         }).$returningId();
@@ -1339,7 +1346,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           }
         }, TOURNAMENT_REGISTER_TIMEOUT_MS);
         tournamentRegisterTimers.set(result.id, regTimer);
-        const payload = { id: result.id, name: `${source.name} — Nova edição`, maxPlayers: source.maxPlayers, format: "1v1", creatorName: user.userName, currentPlayers: 1, prize: source.prize, scheduledStartAt: nextSchedule };
+        const payload = { id: result.id, name, maxPlayers, format: "1v1", creatorName: user.userName, currentPlayers: 1, prize, scheduledStartAt: nextSchedule };
         io.emit("tournament_created", payload);
         cb?.({ ok: true, tournamentId: result.id });
       } catch (error: any) {

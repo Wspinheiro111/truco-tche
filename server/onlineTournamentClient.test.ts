@@ -62,4 +62,14 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain("duplicateOnlineTournament");
     expect(clientSource).toContain("duplicate_tournament");
   });
+
+  it("opens an editable preview before confirming the duplicated edition", () => {
+    expect(clientSource).toContain('id = \'tournament-duplicate-dialog\'');
+    expect(clientSource).toContain("Pré-visualizar nova edição");
+    expect(clientSource).toContain('id="td-name"');
+    expect(clientSource).toContain('id="td-prize"');
+    expect(clientSource).toContain('id="td-capacity"');
+    expect(clientSource).toContain('id="td-schedule"');
+    expect(clientSource).toContain("Confirmar nova edição");
+  });
 });

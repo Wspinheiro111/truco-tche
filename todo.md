@@ -171,3 +171,7 @@
 - [x] Permitir que o organizador duplique um torneio encerrado, criando novo evento em inscrições abertas com as mesmas configurações.
 - [x] Bloquear a duplicação para usuários não organizadores e para torneios ainda em andamento.
 - [x] Cobrir modal de cancelamento, duplicação e permissões com testes e smoke de gestão.
+- [x] Abrir uma pré-visualização editável das configurações antes de criar a nova edição duplicada.
+- [x] Permitir revisar e alterar nome, prêmio, vagas e horário de referência dentro da pré-visualização.
+- [x] Criar a nova edição somente após confirmação explícita ou descartar as alterações ao cancelar.
+- [x] Cobrir pré-visualização, confirmação e descarte com testes e validação da interface.

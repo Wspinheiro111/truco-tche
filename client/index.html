@@ -9025,11 +9025,37 @@ function cancelOnlineTournament(tournamentId) {
 }
 
 function duplicateOnlineTournament(tournamentId) {
-  sio.emit('duplicate_tournament', { tournamentId }, (res) => {
-    if (res?.error) { toast(res.error, 'warn'); return; }
-    toast('✔ Nova edição criada. Ajuste o horário e abra as inscrições.', 'win');
-    loadOnlineTournaments();
-  });
+  const tournament = _tournamentsData.find(t => Number(t.id) === Number(tournamentId));
+  if (!tournament) return;
+  const existing = document.getElementById('tournament-duplicate-dialog');
+  if (existing) existing.remove();
+  const scheduled = tournament.scheduledStartAt && new Date(tournament.scheduledStartAt).getTime() > Date.now()
+    ? new Date(tournament.scheduledStartAt).toISOString().slice(0, 16)
+    : '';
+  const dialog = document.createElement('div');
+  dialog.id = 'tournament-duplicate-dialog';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'tournament-duplicate-title');
+  dialog.style.cssText = 'position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:1rem;background:rgba(6,11,8,.78);backdrop-filter:blur(5px)';
+  dialog.innerHTML = `<div style="width:min(100%,500px);background:linear-gradient(145deg,#1a2b1d,#0d1710);border:1px solid rgba(119,216,151,.62);border-radius:16px;padding:1.3rem;color:#fff;box-shadow:0 24px 60px rgba(0,0,0,.55)"><div style="font-size:1.45rem;margin-bottom:.35rem">↻</div><h3 id="tournament-duplicate-title" style="margin:0;font-size:1.05rem">Pré-visualizar nova edição</h3><p style="margin:.5rem 0 1rem;color:rgba(255,255,255,.68);font-size:.76rem;line-height:1.5">Revise as configurações antes de abrir as inscrições. A chave e os jogadores do evento anterior não serão copiados.</p><div style="display:grid;gap:.7rem"><label style="font-size:.68rem;color:rgba(255,255,255,.67)">Nome<input id="td-name" value="${escapeRoomText(tournament.name)} — Nova edição" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:.58rem .65rem;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#0d1710;color:#fff" /></label><label style="font-size:.68rem;color:rgba(255,255,255,.67)">Prêmio<input id="td-prize" value="${escapeRoomText(tournament.prize || '')}" placeholder="Ex.: Troféu da Cancha" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:.58rem .65rem;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#0d1710;color:#fff" /></label><div style="display:grid;grid-template-columns:1fr 1fr;gap:.65rem"><label style="font-size:.68rem;color:rgba(255,255,255,.67)">Vagas<input id="td-capacity" type="number" min="2" max="64" step="2" value="${Number(tournament.maxPlayers)}" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:.58rem .65rem;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#0d1710;color:#fff" /></label><label style="font-size:.68rem;color:rgba(255,255,255,.67)">Horário previsto<input id="td-schedule" type="datetime-local" value="${scheduled}" style="margin-top:.25rem;width:100%;box-sizing:border-box;padding:.58rem .65rem;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#0d1710;color:#fff" /></label></div></div><div style="display:flex;justify-content:flex-end;gap:.55rem;margin-top:1.15rem"><button type="button" id="td-back" style="padding:.5rem .75rem;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;cursor:pointer">Descartar</button><button type="button" id="td-confirm" style="padding:.5rem .75rem;border-radius:8px;border:0;background:#4d9b63;color:#fff;font-weight:800;cursor:pointer">Confirmar nova edição</button></div></div>`;
+  document.body.appendChild(dialog);
+  const close = () => dialog.remove();
+  dialog.querySelector('#td-back').onclick = close;
+  dialog.addEventListener('click', event => { if (event.target === dialog) close(); });
+  dialog.querySelector('#td-confirm').onclick = () => {
+    const name = dialog.querySelector('#td-name').value.trim();
+    const prize = dialog.querySelector('#td-prize').value.trim();
+    const maxPlayers = Number(dialog.querySelector('#td-capacity').value);
+    const scheduledStartAt = dialog.querySelector('#td-schedule').value || null;
+    sio.emit('duplicate_tournament', { tournamentId, name, prize, maxPlayers, scheduledStartAt }, (res) => {
+      if (res?.error) { toast(res.error, 'warn'); return; }
+      close();
+      toast('✔ Nova edição criada com as configurações revisadas.', 'win');
+      loadOnlineTournaments();
+    });
+  };
+  setTimeout(() => dialog.querySelector('#td-name').focus(), 0);
 }
 
 function openPublicTournamentBracket(tournamentId) {
