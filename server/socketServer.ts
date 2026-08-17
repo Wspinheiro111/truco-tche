@@ -11,7 +11,7 @@ import {
   callFlor, acceptFlor, refuseFlor, fold, getPlayerView,
   GameState, Player, TRUCO_POINTS, TURN_TIMEOUT_MS as ENGINE_TURN_TIMEOUT_MS,
 } from "../shared/gameEngine";
-import { areFriends, claimFriendGameInvite, createActiveOnlineGame, createFriendGameInvite, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame } from "./db";
+import { areFriends, claimFriendGameInvite, confirmInPersonTableGuest, createActiveOnlineGame, createFriendGameInvite, createInPersonInviteToken, createInPersonTable, createUserNotification, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame, validateInPersonTableInvite } from "./db";
 import { onlineRooms, onlineMatches, onlineTournaments, onlineTournamentPlayers, users } from "../drizzle/schema";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
@@ -379,6 +379,87 @@ export function initSocketServer(httpServer: HttpServer): Server {
       });
     });
 
+    // ── Mesa Presencial: cria uma sala privada liberada por QR Code temporário ──
+    socket.on("create_in_person_table", async (_data, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Autenticação necessária" });
+      if (userToRoom.has(user.userId)) return cb?.({ error: "Você já está em uma mesa" });
+
+      const code = genCode();
+      const inviteToken = createInPersonInviteToken();
+      const expiresAt = new Date(Date.now() + ROOM_WAIT_TIMEOUT_MS);
+      const room: RoomData = {
+        code,
+        hostSocket: socket.id,
+        guestSocket: null,
+        hostUserId: user.userId,
+        guestUserId: null,
+        hostName: user.userName,
+        guestName: null,
+        mode: "1v1",
+        stakeTier: "amistoso",
+        region: "BR",
+        isPrivate: true,
+        privateInviteeId: null,
+        state: null,
+        playerMap: { p1: socket.id, p2: "" },
+        userMap: { p1: user.userId, p2: 0 },
+        nameMap: { p1: user.userName, p2: "" },
+        startTime: 0,
+        spectators: new Set(),
+        tournamentId: null,
+        disconnectedPlayers: new Map(),
+        waitingTimer: null,
+        waitingStartedAt: Date.now(),
+        turnTimer: null,
+        turnTimerPlayer: null,
+        snapshotVersion: null,
+      };
+
+      try {
+        const d = await db();
+        await d.insert(onlineRooms).values({
+          code,
+          hostId: user.userId,
+          hostName: user.userName,
+          mode: "1v1",
+          stakeTier: "amistoso",
+          region: "BR",
+          isPrivate: true,
+          privateInviteeId: null,
+          status: "waiting",
+          tournamentId: null,
+        });
+        await createInPersonTable({ roomCode: code, hostId: user.userId, inviteToken, expiresAt });
+        await createUserNotification({
+          userId: user.userId,
+          kind: "in_person_table",
+          title: "Mesa Presencial criada",
+          body: "Mostre o QR Code a quem vai jogar com você. A entrada fica disponível por 15 minutos.",
+          metadata: { roomCode: code },
+        });
+      } catch (error) {
+        console.error("[In-person] Could not create table", error);
+        return cb?.({ error: "Não foi possível criar a Mesa Presencial. Tente novamente." });
+      }
+
+      rooms.set(code, room);
+      socketToRoom.set(socket.id, code);
+      userToRoom.set(user.userId, code);
+      socket.join(code);
+      room.waitingTimer = setTimeout(() => {
+        const active = rooms.get(code);
+        if (!active || active.guestSocket) return;
+        io.to(active.hostSocket).emit("room_timeout", { code });
+        rooms.delete(code);
+        socketToRoom.delete(active.hostSocket);
+        userToRoom.delete(active.hostUserId);
+        void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, code))).catch(() => {});
+        broadcastWaitingRooms();
+      }, ROOM_WAIT_TIMEOUT_MS);
+      cb?.({ success: true, code, inviteToken, expiresAt: expiresAt.toISOString() });
+    });
+
     // ── Create Room ──
     socket.on("create_room", async (data: { mode?: string; stakeTier?: string; region?: string; tournamentId?: number; privateInviteeId?: number }, cb) => {
       const user = socketToUser.get(socket.id);
@@ -549,7 +630,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Join Room ──
-    socket.on("join_room", async (data: { code: string }, cb) => {
+    socket.on("join_room", async (data: { code: string; inPersonToken?: string }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
 
@@ -591,7 +672,13 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
       if (room.guestSocket) return cb?.({ error: "Sala cheia" });
       if (room.hostUserId === user.userId) return cb?.({ error: "Não pode jogar contra si mesmo" });
-      if (!canJoinPrivateRoom(room.isPrivate, room.privateInviteeId, user.userId)) return cb?.({ error: "Esta sala privada não foi convidada para você" });
+      const inPersonInvite = typeof data.inPersonToken === "string" && data.inPersonToken.length >= 20
+        ? await validateInPersonTableInvite(code, data.inPersonToken, user.userId)
+        : null;
+      const hasInPersonInvite = Boolean(inPersonInvite?.valid);
+      if (!canJoinPrivateRoom(room.isPrivate, room.privateInviteeId, user.userId) && !hasInPersonInvite) {
+        return cb?.({ error: inPersonInvite?.reason || "Esta sala privada não foi convidada para você" });
+      }
 
       const reservation = await (await db()).update(onlineRooms)
         .set({ guestId: user.userId, guestName: user.userName, status: "playing" })
@@ -602,6 +689,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         ));
       if (reservation[0].affectedRows !== 1) return cb?.({ error: "Sala cheia ou indisponível" });
       if (room.isPrivate) await claimFriendGameInvite(user.userId, code);
+      if (hasInPersonInvite) await confirmInPersonTableGuest(code, user.userId);
 
       // Cancel waiting timeout — opponent joined
       if (room.waitingTimer) { clearTimeout(room.waitingTimer); room.waitingTimer = null; }

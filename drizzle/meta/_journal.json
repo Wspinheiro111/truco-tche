@@ -162,6 +162,13 @@
       "when": 1786965251206,
       "tag": "0022_cute_clea",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1786965958031,
+      "tag": "0023_swift_jackpot",
+      "breakpoints": true
     }
   ]
 }

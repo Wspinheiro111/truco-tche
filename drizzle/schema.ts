@@ -427,6 +427,47 @@ export const scheduledJobs = mysqlTable("scheduledJobs", {
 
 export type ScheduledJob = typeof scheduledJobs.$inferSelect;
 
+// ─── Central de notificações ──────────────────────────────────────────────────
+
+/** Histórico pessoal de avisos recebidos, preservado mesmo após a notificação push. */
+export const userNotifications = mysqlTable("userNotifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  kind: mysqlEnum("kind", ["tournament_reminder", "in_person_table"]).notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  body: varchar("body", { length: 500 }).notNull(),
+  targetUrl: varchar("targetUrl", { length: 500 }),
+  metadataJson: text("metadataJson"),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userCreatedIdx: index("notification_user_created_idx").on(table.userId, table.createdAt),
+  userUnreadIdx: index("notification_user_unread_idx").on(table.userId, table.readAt),
+}));
+
+export type UserNotification = typeof userNotifications.$inferSelect;
+
+// ─── Mesa Presencial ──────────────────────────────────────────────────────────
+
+/** Uma sala privada temporária cujo segundo assento é liberado por QR Code. */
+export const inPersonTables = mysqlTable("inPersonTables", {
+  id: int("id").autoincrement().primaryKey(),
+  roomCode: varchar("roomCode", { length: 10 }).notNull().unique().references(() => onlineRooms.code, { onDelete: "cascade" }),
+  hostId: int("hostId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  guestId: int("guestId").references(() => users.id, { onDelete: "set null" }),
+  inviteTokenHash: varchar("inviteTokenHash", { length: 64 }).notNull(),
+  status: mysqlEnum("status", ["waiting", "playing", "expired", "cancelled"]).notNull().default("waiting"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  joinedAt: timestamp("joinedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  hostStatusIdx: index("in_person_host_status_idx").on(table.hostId, table.status),
+  expiryIdx: index("in_person_expiry_idx").on(table.status, table.expiresAt),
+}));
+
+export type InPersonTable = typeof inPersonTables.$inferSelect;
+
 // ─── Auditoria de autoverificações de regras ──────────────────────────────────
 
 /**

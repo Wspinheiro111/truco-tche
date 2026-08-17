@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import webpush from "web-push";
 import {
   claimTournamentPushDelivery,
+  createUserNotification,
   isScheduledJobTask,
   listTournamentPushTargets,
   removePushSubscriptionById,
@@ -78,6 +79,14 @@ export async function sendTournamentReminders(now = new Date()) {
         scheduledStartAt: target.scheduledStartAt,
         reminderKind,
       }), { TTL: 60 * 60, urgency: "high" });
+      await createUserNotification({
+        userId: target.userId,
+        kind: "tournament_reminder",
+        title: `🏆 ${target.tournamentName}`,
+        body: `Lembrete enviado: faltam ${reminderKind === "one_hour" ? 60 : 15} minutos para o horário previsto.`,
+        targetUrl: `/tournament/${target.tournamentId}`,
+        metadata: { tournamentId: target.tournamentId, reminderKind },
+      });
       result.sent += 1;
     } catch (error: unknown) {
       const statusCode = Number((error as { statusCode?: number }).statusCode ?? 0);

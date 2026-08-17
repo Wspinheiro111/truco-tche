@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const dbMocks = vi.hoisted(() => ({
   listTournamentPushTargets: vi.fn(),
   claimTournamentPushDelivery: vi.fn(),
+  createUserNotification: vi.fn(),
   removePushSubscriptionById: vi.fn(),
   isScheduledJobTask: vi.fn(),
 }));
@@ -49,6 +50,11 @@ describe("tournament Web Push delivery", () => {
       reminderKind: "one_hour",
     });
     expect(webPushMocks.sendNotification).toHaveBeenCalledTimes(1);
+    expect(dbMocks.createUserNotification).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 7,
+      kind: "tournament_reminder",
+      metadata: { tournamentId: 9, reminderKind: "one_hour" },
+    }));
     expect(result).toMatchObject({ checked: 1, reserved: 1, sent: 1, errors: 0 });
   });
 
@@ -58,6 +64,7 @@ describe("tournament Web Push delivery", () => {
     const result = await sendTournamentReminders(now);
 
     expect(webPushMocks.sendNotification).not.toHaveBeenCalled();
+    expect(dbMocks.createUserNotification).not.toHaveBeenCalled();
     expect(result).toMatchObject({ checked: 1, reserved: 0, sent: 0 });
   });
 

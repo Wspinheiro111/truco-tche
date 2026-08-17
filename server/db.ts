@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, asc, desc, eq, gt, gte, isNotNull, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame, pushSubscriptions, tournamentPushDeliveries, scheduledJobs } from "../drizzle/schema";
+import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame, pushSubscriptions, tournamentPushDeliveries, scheduledJobs, userNotifications, inPersonTables } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 import mysql from 'mysql2/promise';
@@ -334,6 +334,114 @@ export async function isScheduledJobTask(name: string, taskUid: string): Promise
     .where(and(eq(scheduledJobs.name, name), eq(scheduledJobs.taskUid, taskUid)))
     .limit(1);
   return Boolean(job);
+}
+
+// ─── Central de notificações ──────────────────────────────────────────────────
+
+export type UserNotificationInput = {
+  userId: number;
+  kind: "tournament_reminder" | "in_person_table";
+  title: string;
+  body: string;
+  targetUrl?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export async function createUserNotification(input: UserNotificationInput): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(userNotifications).values({
+    userId: input.userId,
+    kind: input.kind,
+    title: input.title,
+    body: input.body,
+    targetUrl: input.targetUrl ?? null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
+  });
+}
+
+export async function listUserNotifications(userId: number, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 100);
+  return db.select().from(userNotifications)
+    .where(eq(userNotifications.userId, userId))
+    .orderBy(desc(userNotifications.createdAt), desc(userNotifications.id))
+    .limit(safeLimit);
+}
+
+export async function markUserNotificationRead(userId: number, notificationId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.update(userNotifications)
+    .set({ readAt: new Date() })
+    .where(and(eq(userNotifications.id, notificationId), eq(userNotifications.userId, userId), sql`${userNotifications.readAt} IS NULL`));
+  return result.affectedRows === 1;
+}
+
+export async function markAllUserNotificationsRead(userId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.update(userNotifications)
+    .set({ readAt: new Date() })
+    .where(and(eq(userNotifications.userId, userId), sql`${userNotifications.readAt} IS NULL`));
+  return result.affectedRows;
+}
+
+// ─── Mesa Presencial ──────────────────────────────────────────────────────────
+
+export function createInPersonInviteToken(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+export function hashInPersonInviteToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function isInPersonInviteExpired(expiresAt: Date | string, now = new Date()): boolean {
+  return new Date(expiresAt).getTime() <= now.getTime();
+}
+
+export async function createInPersonTable(input: {
+  roomCode: string;
+  hostId: number;
+  inviteToken: string;
+  expiresAt: Date;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(inPersonTables).values({
+    roomCode: input.roomCode,
+    hostId: input.hostId,
+    inviteTokenHash: hashInPersonInviteToken(input.inviteToken),
+    expiresAt: input.expiresAt,
+    status: "waiting",
+  });
+}
+
+/** Confere o convite sem revelá-lo; a reserva da vaga ainda é atômica na sala on-line. */
+export async function validateInPersonTableInvite(roomCode: string, inviteToken: string, userId: number): Promise<{ valid: boolean; reason?: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [table] = await db.select().from(inPersonTables)
+    .where(eq(inPersonTables.roomCode, roomCode))
+    .limit(1);
+  if (!table || table.status !== "waiting") return { valid: false, reason: "Mesa presencial indisponível" };
+  if (isInPersonInviteExpired(table.expiresAt)) {
+    await db.update(inPersonTables).set({ status: "expired" }).where(eq(inPersonTables.id, table.id));
+    return { valid: false, reason: "Convite presencial expirado" };
+  }
+  if (table.hostId === userId) return { valid: false, reason: "Você já está nesta mesa" };
+  if (table.inviteTokenHash !== hashInPersonInviteToken(inviteToken)) return { valid: false, reason: "QR Code inválido" };
+  return { valid: true };
+}
+
+export async function confirmInPersonTableGuest(roomCode: string, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(inPersonTables)
+    .set({ guestId: userId, status: "playing", joinedAt: new Date() })
+    .where(and(eq(inPersonTables.roomCode, roomCode), eq(inPersonTables.status, "waiting")));
 }
 
 export async function createLocalUser(data: {

@@ -11,6 +11,7 @@ import { pilasRouter } from "./pilasRouter";
 import { friendsRouter } from "./friendsRouter";
 import { rulesTestRouter } from "./rulesTestRouter";
 import { pushRouter } from "./pushRouter";
+import { notificationsRouter } from "./notificationsRouter";
 import { getOnlineMatchHistory, getTournamentBracket, unlinkGoogleAccount } from "./db";
 
 /**
@@ -83,6 +84,7 @@ export const appRouter = router({
   friends: friendsRouter,
   rulesTests: rulesTestRouter,
   push: pushRouter,
+  notifications: notificationsRouter,
   online: router({
     matchHistory: protectedProcedure.query(async ({ ctx }) => {
       return getOnlineMatchHistory(ctx.user.id, 30);

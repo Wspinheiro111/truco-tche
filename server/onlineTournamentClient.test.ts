@@ -81,4 +81,13 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain("push.unsubscribe");
     expect(clientSource).toContain("A permissão foi recusada");
   });
+
+  it("offers a notification center and a QR-based Mesa Presencial flow", () => {
+    expect(clientSource).toContain("Central de Avisos");
+    expect(clientSource).toContain("notifications.markAllRead");
+    expect(clientSource).toContain("Mesa Presencial");
+    expect(clientSource).toContain("create_in_person_table");
+    expect(clientSource).toContain("Html5Qrcode");
+    expect(clientSource).toContain("inPersonToken");
+  });
 });

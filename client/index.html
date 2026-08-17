@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="/api/socketio/socket.io.js"></script>
 <script>
 // Capturar io do socket.io-client ANTES de qualquer outro script sobrescrever window.io
@@ -1943,6 +1945,8 @@ body, .scr {
     <button class="hfb" onclick="toast('Conquistas em breve, tchê! 🏆','info')" style="position:relative"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg> Conquistas</button>
     <button class="hfb" onclick="show('shop-scr');loadServerPurchases();renderShop()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg> Loja</button>
     <button class="hfb" onclick="openFriendsScreen()" style="position:relative"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Amigos</button>
+    <button class="hfb" onclick="openNotificationsCenter()" style="position:relative" aria-label="Abrir notificações">🔔 <span id="notification-unread-badge" style="display:none;position:absolute;right:-4px;top:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#d83c4a;color:#fff;font-size:.55rem;line-height:16px;font-weight:900"></span> Avisos</button>
+    <button class="hfb" onclick="openInPersonTableScreen()" aria-label="Abrir Mesa Presencial">▣ Mesa QR</button>
     <button class="hfb" onclick="openModal('m-auth');renderAuthModal()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Conta</button>
     <button class="hfb" onclick="show('history-scr');renderHistory()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg> Histórico</button>
     <button class="hfb" onclick="show('tournament-scr');renderTournament()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg> Torneio</button>
@@ -1961,6 +1965,47 @@ body, .scr {
     <section id="friend-incoming-card" style="display:none;background:rgba(244,180,63,.12);border:1px solid rgba(244,180,63,.36);border-radius:13px;padding:.78rem;margin-bottom:.65rem"><div style="font-family:Georgia,serif;color:#f5d77c;font-weight:700;font-size:.83rem">Solicitações recebidas</div><div id="friend-incoming-list" style="margin-top:.45rem"></div></section>
     <section id="friend-invites-card" style="display:none;background:rgba(54,117,186,.18);border:1px solid rgba(132,190,255,.35);border-radius:13px;padding:.78rem;margin-bottom:.65rem"><div style="font-family:Georgia,serif;color:#a9d6ff;font-weight:700;font-size:.83rem">Convites para partida</div><div id="friend-invites-list" style="margin-top:.45rem"></div></section>
     <section style="background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.13);border-radius:13px;padding:.78rem"><div style="font-family:Georgia,serif;color:#f5d77c;font-weight:700;font-size:.83rem">Minha lista</div><div id="friends-list" style="margin-top:.45rem"></div></section>
+  </main>
+</div>
+
+<!-- ══ NOTIFICATION CENTER ══ -->
+<div id="notifications-scr" class="scr" style="background:linear-gradient(180deg,#132744 0%,#173d33 100%);overflow-y:auto;justify-content:flex-start">
+  <div class="g-hdr"><button class="back-btn" onclick="show('home')" style="background:transparent;border:none;color:rgba(255,255,255,.75);font-size:.82rem;cursor:pointer">← Voltar</button><div style="flex:1;text-align:center;font-family:Georgia,serif;font-size:.9rem;font-weight:700;color:#f5d77c">🔔 Central de Avisos</div><button onclick="markAllNotificationsRead()" style="background:transparent;border:1px solid rgba(245,215,124,.4);color:#f5d77c;border-radius:7px;padding:.24rem .45rem;font-size:.62rem;cursor:pointer">Marcar todas</button></div>
+  <main style="width:min(720px,calc(100% - 1.4rem));margin:.85rem auto 2rem">
+    <section style="background:rgba(255,255,255,.075);border:1px solid rgba(245,215,124,.26);border-radius:13px;padding:.78rem">
+      <div style="font-family:Georgia,serif;color:#f5d77c;font-weight:700;font-size:.86rem">Histórico de lembretes</div>
+      <p style="margin:.35rem 0 0;color:rgba(255,255,255,.58);font-size:.68rem;line-height:1.45">Aqui ficam registrados os avisos de torneios e mesas presenciais enviados para a sua conta.</p>
+      <div id="notifications-list" style="margin-top:.75rem"></div>
+    </section>
+  </main>
+</div>
+
+<!-- ══ IN-PERSON TABLE ══ -->
+<div id="in-person-scr" class="scr" style="background:linear-gradient(180deg,#1d2e45 0%,#173d33 100%);overflow-y:auto;justify-content:flex-start">
+  <div class="g-hdr"><button class="back-btn" onclick="closeInPersonTableScreen()" style="background:transparent;border:none;color:rgba(255,255,255,.75);font-size:.82rem;cursor:pointer">← Voltar</button><div style="flex:1;text-align:center;font-family:Georgia,serif;font-size:.9rem;font-weight:700;color:#f5d77c">▣ Mesa Presencial</div><span style="font-size:.6rem;color:rgba(255,255,255,.48)">1×1 por QR</span></div>
+  <main style="width:min(620px,calc(100% - 1.4rem));margin:.85rem auto 2rem">
+    <section id="in-person-create-card" style="background:rgba(255,255,255,.075);border:1px solid rgba(245,215,124,.3);border-radius:14px;padding:1rem;text-align:center">
+      <div style="font-size:1.45rem">🃏</div><div style="font-family:Georgia,serif;color:#f5d77c;font-size:1rem;font-weight:700;margin-top:.35rem">Abra uma mesa no local</div>
+      <p style="font-size:.7rem;color:rgba(255,255,255,.62);line-height:1.5;margin:.42rem 0 .8rem">Mostre o QR Code para quem está ao seu lado. A pessoa entra na sua mesa usando a própria conta.</p>
+      <button onclick="createInPersonTableClient()" style="background:linear-gradient(135deg,#d3ab37,#f4d36c);color:#271900;border:0;border-radius:9px;padding:.62rem .95rem;font-weight:900;font-size:.75rem;cursor:pointer">Criar Mesa Presencial</button>
+    </section>
+    <section id="in-person-host-card" style="display:none;background:rgba(255,255,255,.075);border:1px solid rgba(245,215,124,.35);border-radius:14px;padding:1rem;text-align:center">
+      <div style="font-family:Georgia,serif;color:#f5d77c;font-size:.92rem;font-weight:700">Convide seu adversário</div>
+      <p style="font-size:.67rem;color:rgba(255,255,255,.58);line-height:1.45;margin:.35rem 0 .7rem">O QR Code é temporário e libera somente uma vaga nesta mesa.</p>
+      <div id="in-person-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:10px;line-height:0"></div>
+      <div id="in-person-code" style="margin-top:.7rem;font-family:monospace;color:#fff0b0;font-weight:900;letter-spacing:.15em"></div>
+      <div id="in-person-expiry" style="font-size:.62rem;color:rgba(255,255,255,.48);margin-top:.28rem"></div>
+      <button onclick="copyInPersonInvite()" style="margin-top:.7rem;background:transparent;border:1px solid rgba(245,215,124,.45);color:#f5d77c;border-radius:8px;padding:.42rem .7rem;font-size:.64rem;font-weight:700;cursor:pointer">Copiar convite</button>
+    </section>
+    <section style="margin-top:.7rem;background:rgba(24,82,65,.48);border:1px solid rgba(119,216,151,.3);border-radius:14px;padding:1rem">
+      <div style="font-family:Georgia,serif;color:#aaf0c0;font-size:.87rem;font-weight:700">Entrar em uma Mesa Presencial</div>
+      <p style="font-size:.67rem;color:rgba(255,255,255,.62);line-height:1.45;margin:.35rem 0 .7rem">Aponte a câmera para o QR Code mostrado pelo anfitrião. Se preferir, cole o convite copiado.</p>
+      <button onclick="startInPersonScanner()" style="background:#4d9b72;border:0;color:#fff;border-radius:8px;padding:.5rem .7rem;font-size:.68rem;font-weight:800;cursor:pointer">📷 Ler QR Code</button>
+      <button onclick="stopInPersonScanner()" style="background:transparent;border:1px solid rgba(255,255,255,.22);color:#fff;border-radius:8px;padding:.5rem .65rem;font-size:.68rem;margin-left:.35rem;cursor:pointer">Parar câmera</button>
+      <div id="in-person-qr-reader" style="display:none;overflow:hidden;border-radius:10px;margin-top:.75rem;background:#0b1519"></div>
+      <div style="display:flex;gap:.4rem;margin-top:.7rem"><input id="in-person-invite-input" maxlength="500" placeholder="Cole o convite da mesa" style="flex:1;min-width:0;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;padding:.5rem;font-size:.65rem"><button onclick="joinInPersonFromInput()" style="background:#3675ba;border:0;color:#fff;border-radius:8px;padding:.45rem .65rem;font-size:.65rem;font-weight:800;cursor:pointer">Entrar</button></div>
+      <div id="in-person-scanner-status" style="font-size:.62rem;color:rgba(255,255,255,.52);margin-top:.48rem"></div>
+    </section>
   </main>
 </div>
 
@@ -3772,6 +3817,7 @@ function renderHome(){
   const xc=TT_P.xp-xpFor(TT_P.lv), xn=xpFor(TT_P.lv+1)-xpFor(TT_P.lv);
   document.getElementById('pb-xp').style.width=Math.min(100,xc/xn*100)+'%';
   refreshHomeActiveRooms();
+  refreshNotificationBadge();
 }
 
 const STYLE_TAGS={agressivo:'tag-agr',blefador:'tag-blf',conservador:'tag-con',malandro:'tag-mal',gauchesco:'tag-gau',online:'tag-gau'};
@@ -8751,6 +8797,134 @@ function socketCreateRoom(privateInviteeId, privateInviteeName) {
   });
 }
 
+let _inPersonTableInvite = null;
+let _inPersonQrScanner = null;
+let _inPersonScannerBusy = false;
+
+function getInPersonInvitePayload(code, inviteToken) {
+  return JSON.stringify({ type: 'truco-tche-in-person', version: 1, roomCode: code, inviteToken });
+}
+
+function parseInPersonInvitePayload(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || '').trim());
+    if (parsed?.type !== 'truco-tche-in-person' || parsed?.version !== 1) return null;
+    if (!/^[A-Z2-9]{4}$/i.test(parsed.roomCode || '') || typeof parsed.inviteToken !== 'string' || parsed.inviteToken.length < 20) return null;
+    return { roomCode: parsed.roomCode.toUpperCase(), inviteToken: parsed.inviteToken };
+  } catch { return null; }
+}
+
+function openInPersonTableScreen() {
+  show('in-person-scr');
+  refreshNotificationBadge();
+}
+
+function closeInPersonTableScreen() {
+  stopInPersonScanner();
+  show('home');
+}
+
+function renderInPersonHostInvite(invite) {
+  const card = document.getElementById('in-person-host-card');
+  const createCard = document.getElementById('in-person-create-card');
+  const qr = document.getElementById('in-person-qr');
+  const code = document.getElementById('in-person-code');
+  const expiry = document.getElementById('in-person-expiry');
+  if (card) card.style.display = 'block';
+  if (createCard) createCard.style.display = 'none';
+  if (code) code.textContent = `MESA ${invite.code}`;
+  if (expiry) expiry.textContent = `Válido até ${new Date(invite.expiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  if (!qr) return;
+  qr.innerHTML = '';
+  if (typeof QRCode !== 'undefined') {
+    new QRCode(qr, { text: getInPersonInvitePayload(invite.code, invite.inviteToken), width: 220, height: 220, colorDark: '#18372b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+  } else {
+    qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">QR indisponível. Use Copiar convite.</div>';
+  }
+}
+
+function createInPersonTableClient() {
+  if (!sio || !sioConnected || !sioAuthenticated) {
+    toast('Conectando à cancha...', 'info');
+    waitForAuth(createInPersonTableClient);
+    return;
+  }
+  sio.emit('create_in_person_table', {}, (res) => {
+    if (res?.error) { toast(res.error, 'warn'); return; }
+    _inPersonTableInvite = res;
+    renderInPersonHostInvite(res);
+    refreshNotificationBadge();
+    toast('Mesa Presencial criada. Mostre o QR Code!', 'win');
+  });
+}
+
+async function copyInPersonInvite() {
+  if (!_inPersonTableInvite) return;
+  try {
+    await navigator.clipboard.writeText(getInPersonInvitePayload(_inPersonTableInvite.code, _inPersonTableInvite.inviteToken));
+    toast('Convite copiado. Envie apenas para quem vai jogar contigo.', 'info');
+  } catch { toast('Não foi possível copiar o convite neste navegador.', 'warn'); }
+}
+
+function setInPersonScannerStatus(message) {
+  const status = document.getElementById('in-person-scanner-status');
+  if (status) status.textContent = message;
+}
+
+async function startInPersonScanner() {
+  const reader = document.getElementById('in-person-qr-reader');
+  if (!reader) return;
+  if (typeof Html5Qrcode === 'undefined') { setInPersonScannerStatus('Leitor não disponível. Cole o convite copiado pelo anfitrião.'); return; }
+  if (_inPersonQrScanner) return;
+  reader.style.display = 'block';
+  setInPersonScannerStatus('Solicitando acesso à câmera...');
+  try {
+    _inPersonQrScanner = new Html5Qrcode('in-person-qr-reader');
+    await _inPersonQrScanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 220, height: 220 } }, async (decodedText) => {
+      if (_inPersonScannerBusy) return;
+      _inPersonScannerBusy = true;
+      await stopInPersonScanner();
+      joinInPersonInvite(decodedText);
+    }, () => {});
+    setInPersonScannerStatus('Aponte a câmera para o QR Code da mesa.');
+  } catch {
+    _inPersonQrScanner = null;
+    reader.style.display = 'none';
+    setInPersonScannerStatus('Não foi possível abrir a câmera. Verifique a permissão ou cole o convite.');
+  }
+}
+
+async function stopInPersonScanner() {
+  const scanner = _inPersonQrScanner;
+  _inPersonQrScanner = null;
+  _inPersonScannerBusy = false;
+  if (scanner) { try { await scanner.stop(); await scanner.clear(); } catch {} }
+  const reader = document.getElementById('in-person-qr-reader');
+  if (reader) reader.style.display = 'none';
+}
+
+function joinInPersonFromInput() {
+  const input = document.getElementById('in-person-invite-input');
+  joinInPersonInvite(input?.value || '');
+}
+
+function joinInPersonInvite(rawInvite) {
+  const invite = parseInPersonInvitePayload(rawInvite);
+  if (!invite) { setInPersonScannerStatus('QR Code ou convite inválido. Peça ao anfitrião para gerar uma nova mesa.'); return; }
+  if (!sio || !sioConnected || !sioAuthenticated) {
+    toast('Conectando à cancha...', 'info');
+    waitForAuth(() => joinInPersonInvite(rawInvite));
+    return;
+  }
+  setInPersonScannerStatus('Validando convite e preparando a mesa...');
+  sio.emit('join_room', { code: invite.roomCode, inPersonToken: invite.inviteToken }, (res) => {
+    if (res?.error) { setInPersonScannerStatus(res.error); toast(res.error, 'warn'); return; }
+    finishRoomJoin(invite.roomCode, res);
+    show('online-lobby');
+    toast('Mesa Presencial encontrada. Iniciando a partida...', 'win');
+  });
+}
+
 function socketJoinRoom() {
   if (!sio || !sioConnected || !sioAuthenticated) {
     toast('Conectando...', 'info');
@@ -8971,6 +9145,76 @@ function filterTournaments(filter, btn) {
     b.style.borderColor = active ? 'var(--tg-gold,#c8a84b)' : 'var(--bdr)';
   });
   renderTournamentsList(_tournamentsData);
+}
+
+function escapeNotificationText(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[char]);
+}
+
+function formatNotificationTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function updateNotificationUnreadBadge(count) {
+  const badge = document.getElementById('notification-unread-badge');
+  if (!badge) return;
+  const total = Number(count) || 0;
+  badge.textContent = total > 99 ? '99+' : String(total);
+  badge.style.display = total > 0 ? 'inline-block' : 'none';
+}
+
+function renderNotificationsCenter(data) {
+  const list = document.getElementById('notifications-list');
+  if (!list) return;
+  const notifications = Array.isArray(data?.notifications) ? data.notifications : [];
+  updateNotificationUnreadBadge(data?.unreadCount || 0);
+  if (!notifications.length) {
+    list.innerHTML = '<div style="padding:1.4rem .5rem;text-align:center;color:rgba(255,255,255,.5);font-size:.72rem">Ainda não há avisos por aqui. Quando um lembrete for enviado, ele aparecerá neste histórico.</div>';
+    return;
+  }
+  list.innerHTML = notifications.map(notification => {
+    const unread = !notification.readAt;
+    return `<article style="display:flex;gap:.65rem;align-items:flex-start;padding:.68rem 0;border-bottom:1px solid rgba(255,255,255,.09);${unread ? 'background:rgba(245,215,124,.06);margin:0 -.25rem;padding-left:.25rem;padding-right:.25rem;border-radius:7px' : ''}">
+      <span style="font-size:1.1rem">${notification.kind === 'tournament_reminder' ? '🏆' : '📍'}</span>
+      <div style="min-width:0;flex:1"><div style="font-size:.75rem;font-weight:${unread ? '800' : '600'};color:${unread ? '#fff0b0' : 'rgba(255,255,255,.8)'}">${escapeNotificationText(notification.title)}</div><div style="font-size:.68rem;color:rgba(255,255,255,.58);line-height:1.4;margin-top:.12rem">${escapeNotificationText(notification.body)}</div><div style="font-size:.58rem;color:rgba(255,255,255,.35);margin-top:.3rem">${formatNotificationTime(notification.createdAt)}${unread ? ' · Não lida' : ''}</div></div>
+      ${unread ? `<button onclick="markNotificationRead(${Number(notification.id)})" style="background:transparent;border:1px solid rgba(245,215,124,.4);color:#f5d77c;border-radius:6px;padding:.25rem .38rem;font-size:.58rem;cursor:pointer">Lida</button>` : ''}
+    </article>`;
+  }).join('');
+}
+
+async function refreshNotificationBadge() {
+  try {
+    const data = await window.trpcQuery?.('notifications.list', { limit: 1 });
+    if (data) updateNotificationUnreadBadge(data.unreadCount || 0);
+  } catch { /* a central exibirá o estado de login quando for aberta */ }
+}
+
+async function openNotificationsCenter() {
+  show('notifications-scr');
+  const list = document.getElementById('notifications-list');
+  if (list) list.innerHTML = '<div style="padding:1.2rem;text-align:center;color:rgba(255,255,255,.55);font-size:.72rem">Carregando seus avisos...</div>';
+  try {
+    const data = await window.trpcQuery?.('notifications.list', { limit: 50 });
+    if (!data) throw new Error('Sessão não disponível');
+    renderNotificationsCenter(data);
+  } catch {
+    if (list) list.innerHTML = '<div style="padding:1.2rem;text-align:center;color:rgba(255,255,255,.62);font-size:.72rem">Entre na sua conta para consultar o histórico de avisos.</div>';
+  }
+}
+
+async function markNotificationRead(notificationId) {
+  try {
+    await window.trpcMutation?.('notifications.markRead', { notificationId });
+    await openNotificationsCenter();
+  } catch { toast('Não foi possível atualizar este aviso.', 'warn'); }
+}
+
+async function markAllNotificationsRead() {
+  try {
+    await window.trpcMutation?.('notifications.markAllRead');
+    await openNotificationsCenter();
+  } catch { toast('Não foi possível atualizar os avisos.', 'warn'); }
 }
 
 function joinOnlineTournament(tournamentId) {

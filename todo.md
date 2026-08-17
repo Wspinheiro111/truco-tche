@@ -183,3 +183,10 @@
 - [x] Testar inscrição, recusa, agendamento e entrega de lembretes sem duplicações.
 - [x] Criar registros idempotentes de envio para cada lembrete de torneio e janela de aviso.
 - [x] Excluir assinaturas expiradas ou rejeitadas pelo serviço Web Push sem afetar outros dispositivos do jogador.
+- [x] Persistir o histórico de lembretes enviados por jogador, com status de leitura.
+- [x] Expor consultas e ações autenticadas para listar e marcar notificações como lidas.
+- [x] Criar uma central de notificações acessível na interface com contagem de não lidas.
+- [x] Criar mesas presenciais privadas com código de entrada temporário e QR Code.
+- [x] Permitir entrada por leitura de QR Code ou digitação do código somente ao jogador autorizado.
+- [x] Exibir o estado da Mesa Presencial e iniciar a partida 1×1 ao confirmar dois jogadores.
+- [x] Cobrir central, QR Code, entrada, autorização e início da Mesa Presencial com testes e validação visual.
