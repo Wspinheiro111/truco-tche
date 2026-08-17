@@ -49,4 +49,17 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain("Títulos na cancha");
     expect(clientSource).toContain("📜 Certificado");
   });
+
+  it("uses an explicit accessible confirmation modal before cancellation", () => {
+    expect(clientSource).toContain('id = \'tournament-cancel-dialog\'');
+    expect(clientSource).toContain("setAttribute('aria-modal', 'true')");
+    expect(clientSource).toContain("CANCELAR");
+    expect(clientSource).not.toContain("if (!confirm('Cancelar este campeonato?");
+  });
+
+  it("offers a new edition only for the organizer of a completed tournament", () => {
+    expect(clientSource).toContain("t.status === 'completed'");
+    expect(clientSource).toContain("duplicateOnlineTournament");
+    expect(clientSource).toContain("duplicate_tournament");
+  });
 });

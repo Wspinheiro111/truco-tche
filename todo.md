@@ -167,3 +167,7 @@
 - [x] Bloquear edição e cancelamento após o início, preservando a integridade da chave e dos resultados.
 - [x] Adicionar controles de gestão no card do organizador e cobrir permissões, edição e cancelamento com smoke multiplayer.
 - [x] Executar smoke do organizador: editar dados, bloquear intruso, cancelar inscrições abertas e bloquear mudanças após sorteio.
+- [x] Substituir a confirmação nativa de cancelamento por modal visual acessível com confirmação explícita.
+- [x] Permitir que o organizador duplique um torneio encerrado, criando novo evento em inscrições abertas com as mesmas configurações.
+- [x] Bloquear a duplicação para usuários não organizadores e para torneios ainda em andamento.
+- [x] Cobrir modal de cancelamento, duplicação e permissões com testes e smoke de gestão.

@@ -1297,6 +1297,56 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
+    socket.on("duplicate_tournament", async (data: { tournamentId: number }, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      try {
+        const d = await db();
+        const [source] = await d.select().from(onlineTournaments)
+          .where(eq(onlineTournaments.id, data.tournamentId));
+        if (!source) return cb?.({ error: "Torneio não encontrado" });
+        if (source.creatorId !== user.userId) return cb?.({ error: "Somente o organizador pode duplicar o torneio" });
+        if (source.status !== "completed") return cb?.({ error: "Apenas torneios encerrados podem ser duplicados" });
+        const nextSchedule = source.scheduledStartAt && source.scheduledStartAt.getTime() > Date.now()
+          ? source.scheduledStartAt
+          : null;
+        const [result] = await d.insert(onlineTournaments).values({
+          creatorId: user.userId,
+          name: `${source.name} — Nova edição`,
+          maxPlayers: source.maxPlayers,
+          totalRounds: source.totalRounds,
+          prize: source.prize,
+          scheduledStartAt: nextSchedule,
+          status: "registering",
+        }).$returningId();
+        await d.insert(onlineTournamentPlayers).values({
+          tournamentId: result.id,
+          userId: user.userId,
+          userName: user.userName,
+          seed: 1,
+        });
+        socket.join(`tournament_${result.id}`);
+        const regTimer = setTimeout(async () => {
+          try {
+            const database = await db();
+            const [tournament] = await database.select().from(onlineTournaments).where(eq(onlineTournaments.id, result.id));
+            if (tournament?.status === "registering") {
+              await database.update(onlineTournaments).set({ status: "cancelled" }).where(eq(onlineTournaments.id, result.id));
+              io.to(`tournament_${result.id}`).emit("tournament_cancelled", { tournamentId: result.id, reason: "Tempo de inscrição esgotado (30 minutos)" });
+            }
+          } finally {
+            tournamentRegisterTimers.delete(result.id);
+          }
+        }, TOURNAMENT_REGISTER_TIMEOUT_MS);
+        tournamentRegisterTimers.set(result.id, regTimer);
+        const payload = { id: result.id, name: `${source.name} — Nova edição`, maxPlayers: source.maxPlayers, format: "1v1", creatorName: user.userName, currentPlayers: 1, prize: source.prize, scheduledStartAt: nextSchedule };
+        io.emit("tournament_created", payload);
+        cb?.({ ok: true, tournamentId: result.id });
+      } catch (error: any) {
+        cb?.({ error: error?.message || "Não foi possível duplicar o torneio" });
+      }
+    });
+
     // ── Tournament: recover a ready private match from persistent storage ──
     socket.on("get_tournament_match", async (_data, cb) => {
       const user = socketToUser.get(socket.id);
@@ -1352,8 +1402,11 @@ export function initSocketServer(httpServer: HttpServer): Server {
     socket.on("list_tournaments", async (_data, cb) => {
       try {
         const d2 = await db();
+        const requester = socketToUser.get(socket.id);
         const tournaments = await d2.select().from(onlineTournaments)
-          .where(sql`${onlineTournaments.status} IN ('registering', 'active')`)
+          .where(requester
+            ? sql`(${onlineTournaments.status} IN ('registering', 'active') OR (${onlineTournaments.creatorId} = ${requester.userId} AND ${onlineTournaments.status} = 'completed'))`
+            : sql`${onlineTournaments.status} IN ('registering', 'active')`)
           .orderBy(onlineTournaments.createdAt);
 
         const result = [];

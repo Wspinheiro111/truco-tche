@@ -8950,6 +8950,7 @@ function renderTournamentsList(tournaments) {
               }
               ${isCreator && isReadyToStart ? `<button onclick="startOnlineTournamentManually(${t.id})" style="background:var(--tg-gold,#c8a84b);color:#201400;border:none;padding:.38rem .65rem;border-radius:var(--r);font-size:.62rem;font-weight:800;cursor:pointer;white-space:nowrap">🎲 Sortear e iniciar</button>` : ''}
               ${isCreator && isRegistering ? `<button onclick="editOnlineTournament(${t.id})" style="background:transparent;border:1px solid rgba(143,212,255,.5);color:#8fd4ff;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Editar</button><button onclick="cancelOnlineTournament(${t.id})" style="background:transparent;border:1px solid rgba(255,80,80,.5);color:#ff8c8c;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">✖ Cancelar</button>` : ''}
+              ${isCreator && t.status === 'completed' ? `<button onclick="duplicateOnlineTournament(${t.id})" style="background:transparent;border:1px solid rgba(119,216,151,.5);color:#77d897;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:700;cursor:pointer;white-space:nowrap">↻ Nova edição</button>` : ''}
               <button onclick="openTournamentBracket(${t.id})" style="background:transparent;border:1px solid rgba(200,168,75,.5);color:var(--tg-gold,#c8a84b);padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">🏆 Ver Chave</button>
               <button onclick="openPublicTournamentBracket(${t.id})" style="background:transparent;border:1px solid rgba(110,190,255,.48);color:#8fd4ff;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">🔗 Página pública</button>
             </div>
@@ -8989,10 +8990,44 @@ function editOnlineTournament(tournamentId) {
 }
 
 function cancelOnlineTournament(tournamentId) {
-  if (!confirm('Cancelar este campeonato? As inscrições serão encerradas e a chave não será sorteada.')) return;
-  sio.emit('cancel_tournament', { tournamentId }, (res) => {
+  const tournament = _tournamentsData.find(t => Number(t.id) === Number(tournamentId));
+  const existing = document.getElementById('tournament-cancel-dialog');
+  if (existing) existing.remove();
+  const dialog = document.createElement('div');
+  dialog.id = 'tournament-cancel-dialog';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'tournament-cancel-title');
+  dialog.style.cssText = 'position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:1rem;background:rgba(6,11,8,.78);backdrop-filter:blur(5px)';
+  dialog.innerHTML = `<div style="width:min(100%,430px);background:linear-gradient(145deg,#2a1915,#17100d);border:1px solid rgba(255,120,105,.65);border-radius:16px;padding:1.3rem;color:#fff;box-shadow:0 24px 60px rgba(0,0,0,.55)"><div style="font-size:1.55rem;margin-bottom:.45rem">⚠️</div><h3 id="tournament-cancel-title" style="margin:0;font-size:1.05rem">Cancelar torneio?</h3><p style="margin:.55rem 0 1rem;color:rgba(255,255,255,.72);font-size:.78rem;line-height:1.55">As inscrições de <strong>${escapeRoomText(tournament?.name || 'este torneio')}</strong> serão encerradas e a chave não será sorteada. Esta ação não pode ser desfeita.</p><label style="display:block;font-size:.68rem;color:rgba(255,255,255,.6);margin-bottom:.35rem">Digite <strong style="color:#ffb1a8">CANCELAR</strong> para confirmar</label><input id="tournament-cancel-phrase" autocomplete="off" style="width:100%;box-sizing:border-box;padding:.65rem .7rem;border-radius:9px;border:1px solid rgba(255,255,255,.2);background:#0f0b09;color:#fff;outline:none" /><div style="display:flex;justify-content:flex-end;gap:.55rem;margin-top:1.1rem"><button type="button" id="tournament-cancel-back" style="padding:.5rem .75rem;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;cursor:pointer">Voltar</button><button type="button" id="tournament-cancel-confirm" disabled style="padding:.5rem .75rem;border-radius:8px;border:0;background:#8d2d28;color:#ffd8d4;font-weight:800;cursor:not-allowed">Cancelar torneio</button></div></div>`;
+  document.body.appendChild(dialog);
+  const input = dialog.querySelector('#tournament-cancel-phrase');
+  const confirmButton = dialog.querySelector('#tournament-cancel-confirm');
+  const close = () => dialog.remove();
+  dialog.querySelector('#tournament-cancel-back').onclick = close;
+  dialog.addEventListener('click', (event) => { if (event.target === dialog) close(); });
+  input.addEventListener('input', () => {
+    const allowed = input.value.trim().toUpperCase() === 'CANCELAR';
+    confirmButton.disabled = !allowed;
+    confirmButton.style.background = allowed ? '#c7443e' : '#8d2d28';
+    confirmButton.style.color = allowed ? '#fff' : '#ffd8d4';
+    confirmButton.style.cursor = allowed ? 'pointer' : 'not-allowed';
+  });
+  confirmButton.onclick = () => {
+    sio.emit('cancel_tournament', { tournamentId }, (res) => {
+      if (res?.error) { toast(res.error, 'warn'); return; }
+      close();
+      toast('Campeonato cancelado. Os inscritos foram avisados.', 'info');
+      loadOnlineTournaments();
+    });
+  };
+  setTimeout(() => input.focus(), 0);
+}
+
+function duplicateOnlineTournament(tournamentId) {
+  sio.emit('duplicate_tournament', { tournamentId }, (res) => {
     if (res?.error) { toast(res.error, 'warn'); return; }
-    toast('Campeonato cancelado. Os inscritos foram avisados.', 'info');
+    toast('✔ Nova edição criada. Ajuste o horário e abra as inscrições.', 'win');
     loadOnlineTournaments();
   });
 }
