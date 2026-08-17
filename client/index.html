@@ -1982,19 +1982,22 @@ body, .scr {
 
 <!-- ══ IN-PERSON TABLE ══ -->
 <div id="in-person-scr" class="scr" style="background:linear-gradient(180deg,#1d2e45 0%,#173d33 100%);overflow-y:auto;justify-content:flex-start">
-  <div class="g-hdr"><button class="back-btn" onclick="closeInPersonTableScreen()" style="background:transparent;border:none;color:rgba(255,255,255,.75);font-size:.82rem;cursor:pointer">← Voltar</button><div style="flex:1;text-align:center;font-family:Georgia,serif;font-size:.9rem;font-weight:700;color:#f5d77c">▣ Mesa Presencial</div><span style="font-size:.6rem;color:rgba(255,255,255,.48)">1×1 por QR</span></div>
+  <div class="g-hdr"><button class="back-btn" onclick="closeInPersonTableScreen()" style="background:transparent;border:none;color:rgba(255,255,255,.75);font-size:.82rem;cursor:pointer">← Voltar</button><div style="flex:1;text-align:center;font-family:Georgia,serif;font-size:.9rem;font-weight:700;color:#f5d77c">▣ Mesa Presencial</div><span style="font-size:.6rem;color:rgba(255,255,255,.48)">1×1 · 2×2 · 3×3</span></div>
   <main style="width:min(620px,calc(100% - 1.4rem));margin:.85rem auto 2rem">
     <section id="in-person-create-card" style="background:rgba(255,255,255,.075);border:1px solid rgba(245,215,124,.3);border-radius:14px;padding:1rem;text-align:center">
       <div style="font-size:1.45rem">🃏</div><div style="font-family:Georgia,serif;color:#f5d77c;font-size:1rem;font-weight:700;margin-top:.35rem">Abra uma mesa no local</div>
-      <p style="font-size:.7rem;color:rgba(255,255,255,.62);line-height:1.5;margin:.42rem 0 .8rem">Mostre o QR Code para quem está ao seu lado. A pessoa entra na sua mesa usando a própria conta.</p>
+      <p style="font-size:.7rem;color:rgba(255,255,255,.62);line-height:1.5;margin:.42rem 0 .65rem">Escolha a modalidade e mostre o QR Code para completar a roda. Cada pessoa entra usando a própria conta.</p>
+      <label style="display:block;text-align:left;font-size:.64rem;color:#f5d77c;font-weight:700;margin:.55rem auto .25rem;max-width:300px" for="in-person-mode">Modalidade</label>
+      <select id="in-person-mode" style="width:min(300px,100%);background:rgba(0,0,0,.22);border:1px solid rgba(245,215,124,.35);border-radius:8px;color:#fff;padding:.52rem;font-size:.7rem"><option value="1v1">Mano a mano · 2 jogadores</option><option value="2v2">Duplas · 4 jogadores</option><option value="3v3">Trios · 6 jogadores</option></select>
       <button onclick="createInPersonTableClient()" style="background:linear-gradient(135deg,#d3ab37,#f4d36c);color:#271900;border:0;border-radius:9px;padding:.62rem .95rem;font-weight:900;font-size:.75rem;cursor:pointer">Criar Mesa Presencial</button>
     </section>
     <section id="in-person-host-card" style="display:none;background:rgba(255,255,255,.075);border:1px solid rgba(245,215,124,.35);border-radius:14px;padding:1rem;text-align:center">
-      <div style="font-family:Georgia,serif;color:#f5d77c;font-size:.92rem;font-weight:700">Convide seu adversário</div>
-      <p style="font-size:.67rem;color:rgba(255,255,255,.58);line-height:1.45;margin:.35rem 0 .7rem">O QR Code é temporário e libera somente uma vaga nesta mesa.</p>
+      <div id="in-person-host-title" style="font-family:Georgia,serif;color:#f5d77c;font-size:.92rem;font-weight:700">Convide a roda</div>
+      <p id="in-person-host-copy" style="font-size:.67rem;color:rgba(255,255,255,.58);line-height:1.45;margin:.35rem 0 .7rem">O QR Code é temporário e libera as vagas desta mesa.</p>
       <div id="in-person-qr" style="display:inline-block;background:#fff;padding:10px;border-radius:10px;line-height:0"></div>
       <div id="in-person-code" style="margin-top:.7rem;font-family:monospace;color:#fff0b0;font-weight:900;letter-spacing:.15em"></div>
       <div id="in-person-expiry" style="font-size:.62rem;color:rgba(255,255,255,.48);margin-top:.28rem"></div>
+      <div id="in-person-participants" style="margin:.65rem auto 0;max-width:350px;text-align:left"></div>
       <button onclick="copyInPersonInvite()" style="margin-top:.7rem;background:transparent;border:1px solid rgba(245,215,124,.45);color:#f5d77c;border-radius:8px;padding:.42rem .7rem;font-size:.64rem;font-weight:700;cursor:pointer">Copiar convite</button>
     </section>
     <section style="margin-top:.7rem;background:rgba(24,82,65,.48);border:1px solid rgba(119,216,151,.3);border-radius:14px;padding:1rem">
@@ -7898,6 +7901,14 @@ function ensureSocket() {
     show('online-game');
   });
 
+  sio.on('in_person_players_updated', (data) => {
+    if (!data?.code || (_inPersonTableInvite && _inPersonTableInvite.code !== data.code)) return;
+    _inPersonTableInvite = { ...(_inPersonTableInvite || {}), ...data, code: data.code };
+    renderInPersonParticipants(_inPersonTableInvite);
+    const total = Array.isArray(data.participants) ? data.participants.length : 0;
+    setInPersonScannerStatus(total < data.maxPlayers ? `${total}/${data.maxPlayers} jogadores na mesa. Aguardando a roda completar.` : 'Mesa completa. Preparando a partida...');
+  });
+
   sio.on('game_state', (data) => {
     if (data && (data.reconnected || data.synchronized)) {
       sioGameActive = true;
@@ -7915,15 +7926,16 @@ function ensureSocket() {
 
   sio.on('round_result', (data) => {
     // Flash round result
+    const myResult = data.teamGame ? sioGameState?.team : sioRole;
     const msg = data.result === 'draw' ? 'Empate na rodada!' :
-      data.result === sioRole ? 'Você venceu a rodada!' : 'Adversário venceu a rodada!';
-    toast(msg, data.result === sioRole ? 'win' : data.result === 'draw' ? 'info' : 'lose');
+      data.result === myResult ? 'Sua equipe venceu a rodada!' : 'A outra equipe venceu a rodada!';
+    toast(msg, data.result === myResult ? 'win' : data.result === 'draw' ? 'info' : 'lose');
     showOnlineResolvedTrick(data);
   });
 
   sio.on('hand_winner', (data) => {
-    const isMe = data.winner === sioRole;
-    toast(isMe ? `Você fez ${data.points} ponto(s)!` : `${data.winnerName} fez ${data.points} ponto(s)`, isMe ? 'win' : 'lose');
+    const isMe = data.winner === (data.teamGame ? sioGameState?.team : sioRole);
+    toast(isMe ? `${data.teamGame ? 'Sua equipe' : 'Você'} fez ${data.points} ponto(s)!` : `${data.winnerName} fez ${data.points} ponto(s)`, isMe ? 'win' : 'lose');
   });
 
   sio.on('game_over', (data) => {
@@ -8824,16 +8836,39 @@ function closeInPersonTableScreen() {
   show('home');
 }
 
+function inPersonModeLabel(mode) {
+  return mode === '2v2' ? 'Duplas · 2×2' : mode === '3v3' ? 'Trios · 3×3' : 'Mano a mano · 1×1';
+}
+
+function renderInPersonParticipants(invite) {
+  const container = document.getElementById('in-person-participants');
+  if (!container) return;
+  const maxPlayers = Number(invite?.maxPlayers || 2);
+  const joined = Array.isArray(invite?.participants) ? invite.participants : [];
+  const seats = Array.from({ length: maxPlayers }, (_, index) => {
+    const seat = index + 1;
+    const player = joined.find(item => Number(item.seat) === seat);
+    const team = seat % 2 === 1 ? 'A' : 'B';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.35rem .45rem;border-radius:7px;margin-top:.22rem;background:${player ? (team === 'A' ? 'rgba(72,142,224,.18)' : 'rgba(229,150,70,.18)') : 'rgba(255,255,255,.055)'};font-size:.63rem"><span style="color:${team === 'A' ? '#a9d6ff' : '#ffd39b'};font-weight:800">Equipe ${team} · vaga ${seat}</span><span style="color:${player ? '#fff' : 'rgba(255,255,255,.4)'}">${player ? escapeNotificationText(player.userName) : 'Aguardando QR'}</span></div>`;
+  });
+  container.innerHTML = `<div style="font-size:.61rem;color:rgba(255,255,255,.55);margin-bottom:.28rem">${joined.length}/${maxPlayers} jogadores · ${inPersonModeLabel(invite?.mode || '1v1')}</div>${seats.join('')}`;
+}
+
 function renderInPersonHostInvite(invite) {
   const card = document.getElementById('in-person-host-card');
   const createCard = document.getElementById('in-person-create-card');
   const qr = document.getElementById('in-person-qr');
   const code = document.getElementById('in-person-code');
   const expiry = document.getElementById('in-person-expiry');
+  const title = document.getElementById('in-person-host-title');
+  const copy = document.getElementById('in-person-host-copy');
   if (card) card.style.display = 'block';
   if (createCard) createCard.style.display = 'none';
   if (code) code.textContent = `MESA ${invite.code}`;
   if (expiry) expiry.textContent = `Válido até ${new Date(invite.expiresAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  if (title) title.textContent = `Convide para ${inPersonModeLabel(invite.mode || '1v1')}`;
+  if (copy) copy.textContent = `O QR Code é temporário e libera ${invite.maxPlayers - 1} vaga${invite.maxPlayers - 1 === 1 ? '' : 's'} nesta mesa.`;
+  renderInPersonParticipants(invite);
   if (!qr) return;
   qr.innerHTML = '';
   if (typeof QRCode !== 'undefined') {
@@ -8849,12 +8884,14 @@ function createInPersonTableClient() {
     waitForAuth(createInPersonTableClient);
     return;
   }
-  sio.emit('create_in_person_table', {}, (res) => {
+  const modeControl = document.getElementById('in-person-mode');
+  const mode = ['1v1', '2v2', '3v3'].includes(modeControl?.value) ? modeControl.value : '1v1';
+  sio.emit('create_in_person_table', { mode }, (res) => {
     if (res?.error) { toast(res.error, 'warn'); return; }
-    _inPersonTableInvite = res;
-    renderInPersonHostInvite(res);
+    _inPersonTableInvite = { ...res, participants: [{ seat: 1, team: 'A', userName: sioMyName || 'Você' }] };
+    renderInPersonHostInvite(_inPersonTableInvite);
     refreshNotificationBadge();
-    toast('Mesa Presencial criada. Mostre o QR Code!', 'win');
+    toast(`${inPersonModeLabel(mode)} criada. Mostre o QR Code!`, 'win');
   });
 }
 
@@ -8919,6 +8956,12 @@ function joinInPersonInvite(rawInvite) {
   setInPersonScannerStatus('Validando convite e preparando a mesa...');
   sio.emit('join_room', { code: invite.roomCode, inPersonToken: invite.inviteToken }, (res) => {
     if (res?.error) { setInPersonScannerStatus(res.error); toast(res.error, 'warn'); return; }
+    if (res?.mode === '2v2' || res?.mode === '3v3') {
+      setInPersonScannerStatus(res.waiting ? `Você entrou na Equipe ${res.team}. Aguardando ${res.maxPlayers - (res.participants?.length || 0)} jogador(es).` : 'Mesa completa. Preparando a partida...');
+      if (Array.isArray(res.participants)) renderInPersonParticipants({ ...res, participants: res.participants });
+      toast(res.waiting ? `Você entrou na Equipe ${res.team}.` : 'Mesa completa. Iniciando a partida!', 'win');
+      return;
+    }
     finishRoomJoin(invite.roomCode, res);
     show('online-lobby');
     toast('Mesa Presencial encontrada. Iniciando a partida...', 'win');
@@ -9779,7 +9822,52 @@ function renderOnlinePlayerAvatar(element, avatar, presence, playerName) {
   element.innerHTML = `<img class="og-avatar-media" src="${avatar.src}" alt="Avatar ${avatar.label}"><span class="og-presence ${normalizedPresence}" aria-hidden="true"></span>`;
 }
 
+function emitOnlineGameplayAction(type, payload, callback) {
+  if (sioGameState?.isTeamGame) {
+    if (type === 'play_card') return sio.emit('team_play_card', payload, callback);
+    return sio.emit('team_action', { type, ...payload }, callback);
+  }
+  return sio.emit(type, payload, callback);
+}
+
+function emitOnlineModalAction(type, payload) {
+  if (!sio) return;
+  if (sioGameState?.isTeamGame) sio.emit('team_action', { type, ...(payload || {}) });
+  else sio.emit(type, payload || {});
+}
+
+function normalizeTeamStateForTable(state) {
+  const myTeam = state.team;
+  const opponentTeam = myTeam === 'A' ? 'B' : 'A';
+  const participants = Array.isArray(state.participants) ? state.participants : [];
+  const opponentName = participants.filter(player => player.team === opponentTeam).map(player => player.userName).join(' · ') || `Equipe ${opponentTeam}`;
+  const teammateNames = participants.filter(player => player.team === myTeam && player.role !== state.myRole).map(player => player.userName);
+  const hasTeamFlor = Object.entries(state.hasFlor || {}).some(([role, hasFlor]) => state.teams?.[role] === myTeam && hasFlor);
+  const table = (state.table || []).map(card => ({ ...card, player: state.teams?.[card.player] === myTeam ? 'p1' : 'p2' }));
+  const resolved = Array.isArray(window._ogResolvedTrick?.cards) ? { ...window._ogResolvedTrick, cards: window._ogResolvedTrick.cards.map(card => ({ ...card, player: state.teams?.[card.player] === myTeam ? 'p1' : 'p2' })) } : null;
+  if (resolved) window._ogResolvedTrick = resolved;
+  const opponentCardCount = participants.filter(player => player.team === opponentTeam).reduce((total, player) => total + Number(state.cardCounts?.[player.role] || 0), 0);
+  const isMyTurn = state.turn === state.myRole && state.phase === 'playing';
+  return {
+    ...state,
+    score: { p1: state.score?.[myTeam] || 0, p2: state.score?.[opponentTeam] || 0 },
+    myRole: 'p1',
+    currentPlayer: isMyTurn ? 'p1' : 'p2',
+    handMano: state.teams?.[state.handMano] === myTeam ? 'p1' : 'p2',
+    myName: teammateNames.length ? `Equipe ${myTeam} · ${state.myName}` : `Equipe ${myTeam} · ${state.myName}`,
+    opponentName: `Equipe ${opponentTeam} · ${opponentName}`,
+    table,
+    roundWins: (state.roundWins || []).map(result => result === myTeam ? 'p1' : result === opponentTeam ? 'p2' : result),
+    opponentCardCount,
+    canTruco: isMyTurn && state.trucoLevel < 4 && (!state.lastTrucoCaller || state.teams?.[state.lastTrucoCaller] !== myTeam),
+    canEnvido: isMyTurn && !state.envidoResolved && !state.playedFirst?.[state.turn] && !hasTeamFlor,
+    canFlor: isMyTurn && Boolean(state.hasFlor?.[state.turn]) && !state.envidoResolved,
+    teamOriginal: state,
+  };
+}
+
 function renderOnlineGame(state) {
+  if (state?.isTeamGame) state = normalizeTeamStateForTable(state);
   // ── Computed flags (must be first) ──
   const isMyTurn = state.currentPlayer === state.myRole && state.phase === 'playing';
   const iAmMao = state.handMano === state.myRole;
@@ -9919,7 +10007,7 @@ function renderOnlineGame(state) {
           // Lock UI: disable all cards until server ACK
           const allCards = handEl.querySelectorAll('.hc');
           allCards.forEach(c => { c.classList.add('dis'); c.onclick = null; });
-          sio.emit('play_card', { cardId: card.id }, (res) => {
+          emitOnlineGameplayAction('play_card', { cardId: card.id }, (res) => {
             if (res && res.error) {
               toast(res.error, 'warn');
               // Re-render to restore clickability on error
@@ -9990,7 +10078,7 @@ function renderOnlineGame(state) {
       trucoBtn.className = 'sb sb-truco';
       const tLvl = state.trucoLevel || 1;
       trucoBtn.textContent = tLvl <= 1 ? '🔥 Truco' : tLvl === 2 ? '🔥 Retruco' : '💀 Vale 4';
-      trucoBtn.onclick = () => sio.emit('call_truco', {}, (r) => {
+      trucoBtn.onclick = () => emitOnlineGameplayAction('call_truco', {}, (r) => {
         if (r?.error) return toast(r.error, 'warn');
         syncOnlineStateNow();
       });
@@ -10001,7 +10089,7 @@ function renderOnlineGame(state) {
       const envidoBtn = document.createElement('button');
       envidoBtn.className = 'sb sb-envido';
       envidoBtn.textContent = '🎯 Envido';
-      envidoBtn.onclick = () => sio.emit('call_envido', { action: 'envido' }, (r) => {
+      envidoBtn.onclick = () => emitOnlineGameplayAction('call_envido', { action: 'envido' }, (r) => {
         if (r?.error) return toast(r.error, 'warn');
         syncOnlineStateNow();
       });
@@ -10012,21 +10100,23 @@ function renderOnlineGame(state) {
       const florBtn = document.createElement('button');
       florBtn.className = 'sb sb-flor';
       florBtn.textContent = '🌸 Flor';
-      florBtn.onclick = () => sio.emit('call_flor', { action: 'flor' }, (r) => {
+      florBtn.onclick = () => emitOnlineGameplayAction('call_flor', { action: 'flor' }, (r) => {
         if (r?.error) return toast(r.error, 'warn');
         syncOnlineStateNow();
       });
       actionsEl.appendChild(florBtn);
     }
     // Fold button (Mazo/Correr)
-    const foldBtn = document.createElement('button');
-    foldBtn.className = 'sb sb-fold';
-    foldBtn.textContent = '🏳 Correr';
-    foldBtn.onclick = () => sio.emit('fold_hand', {}, (r) => {
-      if (r?.error) return toast(r.error, 'warn');
-      syncOnlineStateNow();
-    });
-    actionsEl.appendChild(foldBtn);
+    if (!state.isTeamGame) {
+      const foldBtn = document.createElement('button');
+      foldBtn.className = 'sb sb-fold';
+      foldBtn.textContent = '🏳 Correr';
+      foldBtn.onclick = () => sio.emit('fold_hand', {}, (r) => {
+        if (r?.error) return toast(r.error, 'warn');
+        syncOnlineStateNow();
+      });
+      actionsEl.appendChild(foldBtn);
+    }
   }
 }
 
@@ -10097,9 +10187,9 @@ function showOnlineTrucoModal(data) {
         <div style="font-size:1.1rem;font-weight:700;text-align:center;margin-bottom:.3rem">${data.callerName} pediu ${labels[level] || 'Truco!'}</div>
         <div style="font-size:.75rem;color:var(--txt3);text-align:center;margin-bottom:1rem">Vale ${level * 3 || 3} pontos</div>
         <div style="display:flex;gap:.5rem;justify-content:center">
-          <button onclick="sio.emit('accept_truco',{});closeOnlineModal('m-online-truco')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
-          ${level < 3 ? `<button onclick="sio.emit('raise_truco',{});closeOnlineModal('m-online-truco')" style="background:var(--tg-gold);color:#000;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">🔥 ${level === 1 ? 'Retruco!' : 'Vale 4!'}</button>` : ''}
-          <button onclick="sio.emit('refuse_truco',{});closeOnlineModal('m-online-truco')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Correr</button>
+          <button onclick="emitOnlineModalAction('accept_truco');closeOnlineModal('m-online-truco')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
+          ${level < 3 ? `<button onclick="emitOnlineModalAction(sioGameState?.isTeamGame ? 'call_truco' : 'raise_truco');closeOnlineModal('m-online-truco')" style="background:var(--tg-gold);color:#000;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">🔥 ${level === 1 ? 'Retruco!' : 'Vale 4!'}</button>` : ''}
+          <button onclick="emitOnlineModalAction('refuse_truco');closeOnlineModal('m-online-truco')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Correr</button>
         </div>
       </div>
     </div>`;
@@ -10114,8 +10204,8 @@ function showOnlineEnvidoModal(data) {
         <div style="font-size:1.1rem;font-weight:700;text-align:center;margin-bottom:.3rem">${data.callerName} pediu ${data.action}!</div>
         <div style="font-size:.75rem;color:var(--txt3);text-align:center;margin-bottom:1rem">Aposta: ${data.bet} pontos</div>
         <div style="display:flex;gap:.5rem;justify-content:center">
-          <button onclick="sio.emit('accept_envido',{});closeOnlineModal('m-online-envido')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
-          <button onclick="sio.emit('refuse_envido',{});closeOnlineModal('m-online-envido')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Recusar</button>
+          <button onclick="emitOnlineModalAction('accept_envido');closeOnlineModal('m-online-envido')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
+          <button onclick="emitOnlineModalAction('refuse_envido');closeOnlineModal('m-online-envido')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Recusar</button>
         </div>
       </div>
     </div>`;
@@ -10130,10 +10220,10 @@ function showOnlineFlorModal(data) {
         <div style="font-size:1.1rem;font-weight:700;text-align:center;margin-bottom:.3rem">Flor!</div>
         <div style="font-size:.75rem;color:var(--txt3);text-align:center;margin-bottom:1rem">Aposta: ${data.bet} pontos</div>
         <div style="display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap">
-          <button onclick="sio.emit('accept_flor',{});closeOnlineModal('m-online-flor')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
-          <button onclick="sio.emit('refuse_flor',{});closeOnlineModal('m-online-flor')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Recusar</button>
-          ${data.action === 'flor' ? `<button onclick="sio.emit('call_flor',{action:'contra_flor'});closeOnlineModal('m-online-flor')" style="background:var(--tg-gold);color:#2b1705;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:800;cursor:pointer;font-size:.8rem">Contra-Flor</button>` : ''}
-          ${data.action === 'contra_flor' ? `<button onclick="sio.emit('call_flor',{action:'contra_flor_resto'});closeOnlineModal('m-online-flor')" style="background:var(--tg-gold);color:#2b1705;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:800;cursor:pointer;font-size:.8rem">Contra-Flor e o Resto</button>` : ''}
+          <button onclick="emitOnlineModalAction('accept_flor');closeOnlineModal('m-online-flor')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
+          <button onclick="emitOnlineModalAction('refuse_flor');closeOnlineModal('m-online-flor')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Recusar</button>
+          ${data.action === 'flor' ? `<button onclick="emitOnlineModalAction('call_flor',{action:'contra_flor'});closeOnlineModal('m-online-flor')" style="background:var(--tg-gold);color:#2b1705;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:800;cursor:pointer;font-size:.8rem">Contra-Flor</button>` : ''}
+          ${data.action === 'contra_flor' ? `<button onclick="emitOnlineModalAction('call_flor',{action:'contra_flor_resto'});closeOnlineModal('m-online-flor')" style="background:var(--tg-gold);color:#2b1705;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:800;cursor:pointer;font-size:.8rem">Contra-Flor e o Resto</button>` : ''}
         </div>
       </div>
     </div>`;

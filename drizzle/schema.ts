@@ -280,6 +280,23 @@ export const activeOnlineGames = mysqlTable("activeOnlineGames", {
 export type ActiveOnlineGame = typeof activeOnlineGames.$inferSelect;
 export type InsertActiveOnlineGame = typeof activeOnlineGames.$inferInsert;
 
+/** Participantes adicionais de snapshots em modalidades por equipe. */
+export const activeOnlineGamePlayers = mysqlTable("activeOnlineGamePlayers", {
+  id: int("id").autoincrement().primaryKey(),
+  roomCode: varchar("roomCode", { length: 10 }).notNull().references(() => activeOnlineGames.roomCode, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userName: varchar("userName", { length: 100 }).notNull(),
+  seat: int("seat").notNull(),
+  team: mysqlEnum("team", ["A", "B"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  roomSeatUnique: uniqueIndex("aogp_room_seat_unique_idx").on(table.roomCode, table.seat),
+  roomUserUnique: uniqueIndex("aogp_room_user_unique_idx").on(table.roomCode, table.userId),
+  userIdx: index("aogp_user_idx").on(table.userId),
+}));
+
+export type ActiveOnlineGamePlayer = typeof activeOnlineGamePlayers.$inferSelect;
+
 /**
  * Online match results (persisted after game ends).
  */
@@ -456,6 +473,9 @@ export const inPersonTables = mysqlTable("inPersonTables", {
   hostId: int("hostId").notNull().references(() => users.id, { onDelete: "cascade" }),
   guestId: int("guestId").references(() => users.id, { onDelete: "set null" }),
   inviteTokenHash: varchar("inviteTokenHash", { length: 64 }).notNull(),
+  /** 1×1, 2×2 ou 3×3; somente as Mesas Presenciais usam modalidades por equipe. */
+  mode: mysqlEnum("mode", ["1v1", "2v2", "3v3"]).notNull().default("1v1"),
+  maxPlayers: int("maxPlayers").notNull().default(2),
   status: mysqlEnum("status", ["waiting", "playing", "expired", "cancelled"]).notNull().default("waiting"),
   expiresAt: timestamp("expiresAt").notNull(),
   joinedAt: timestamp("joinedAt"),
@@ -467,6 +487,23 @@ export const inPersonTables = mysqlTable("inPersonTables", {
 }));
 
 export type InPersonTable = typeof inPersonTables.$inferSelect;
+
+/** Assentos de uma Mesa Presencial, preenchidos em ordem de leitura do QR Code. */
+export const inPersonTablePlayers = mysqlTable("inPersonTablePlayers", {
+  id: int("id").autoincrement().primaryKey(),
+  tableId: int("tableId").notNull().references(() => inPersonTables.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  userName: varchar("userName", { length: 100 }).notNull(),
+  seat: int("seat").notNull(),
+  team: mysqlEnum("team", ["A", "B"]).notNull(),
+  joinedAt: timestamp("joinedAt").defaultNow().notNull(),
+}, (table) => ({
+  tableSeatUnique: uniqueIndex("iptp_table_seat_unique_idx").on(table.tableId, table.seat),
+  tableUserUnique: uniqueIndex("iptp_table_user_unique_idx").on(table.tableId, table.userId),
+  userIdx: index("iptp_user_idx").on(table.userId),
+}));
+
+export type InPersonTablePlayer = typeof inPersonTablePlayers.$inferSelect;
 
 // ─── Auditoria de autoverificações de regras ──────────────────────────────────
 

@@ -26,7 +26,9 @@ describe("gameplay visual contract", () => {
     expect(html).toContain("const ONLINE_STATE_SYNC_PLAYING_MS = 1200");
     expect(html).toContain("function syncOnlineStateNow()");
     expect(html).toContain("sioGameActive ? ONLINE_STATE_SYNC_PLAYING_MS : ONLINE_STATE_SYNC_WAITING_MS");
-    expect(html).toContain("sio.emit('play_card', { cardId: card.id }");
+    expect(html).toContain("function emitOnlineGameplayAction(type, payload, callback)");
+    expect(html).toContain("sio.emit('team_play_card', payload, callback)");
+    expect(html).toContain("emitOnlineGameplayAction('play_card', { cardId: card.id }");
     expect(html).toContain("syncOnlineStateNow();");
   });
 

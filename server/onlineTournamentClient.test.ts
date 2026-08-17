@@ -90,4 +90,13 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain("Html5Qrcode");
     expect(clientSource).toContain("inPersonToken");
   });
+
+  it("allows host selection and QR entry for mano a mano, duplas and trios", () => {
+    expect(clientSource).toContain('option value="1v1"');
+    expect(clientSource).toContain('option value="2v2"');
+    expect(clientSource).toContain('option value="3v3"');
+    expect(clientSource).toContain("team_play_card");
+    expect(clientSource).toContain("team_action");
+    expect(clientSource).toContain("in_person_players_updated");
+  });
 });

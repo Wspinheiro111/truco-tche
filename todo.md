@@ -190,3 +190,9 @@
 - [x] Permitir entrada por leitura de QR Code ou digitação do código somente ao jogador autorizado.
 - [x] Exibir o estado da Mesa Presencial e iniciar a partida 1×1 ao confirmar dois jogadores.
 - [x] Cobrir central, QR Code, entrada, autorização e início da Mesa Presencial com testes e validação visual.
+- [x] Auditar e ampliar o motor para partidas de 1×1, 2×2 e 3×3 sem regressão das regras já validadas.
+- [x] Persistir a modalidade, a capacidade e os assentos de cada Mesa Presencial por QR Code.
+- [x] Permitir que o anfitrião escolha mano a mano, duplas ou trios antes de gerar o QR Code.
+- [x] Atribuir participantes que entram pelo QR Code às equipes e iniciar somente quando todos os assentos forem ocupados.
+- [x] Atualizar a mesa, o placar e as ações para representar equipes em duplas e trios.
+- [x] Cobrir criação, entrada, equipes, início e limpeza automática em todos os três modos presenciais.

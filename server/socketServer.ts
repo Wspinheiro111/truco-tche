@@ -11,7 +11,8 @@ import {
   callFlor, acceptFlor, refuseFlor, fold, getPlayerView,
   GameState, Player, TRUCO_POINTS, TURN_TIMEOUT_MS as ENGINE_TURN_TIMEOUT_MS,
 } from "../shared/gameEngine";
-import { areFriends, claimFriendGameInvite, confirmInPersonTableGuest, createActiveOnlineGame, createFriendGameInvite, createInPersonInviteToken, createInPersonTable, createUserNotification, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, updateActiveOnlineGame, validateInPersonTableInvite } from "./db";
+import { acceptTeamEnvido, acceptTeamFlor, acceptTeamTruco, callTeamEnvido, callTeamFlor, callTeamTruco, createTeamGameState, dealTeamHand, getTeamPlayerView, playTeamCard, refuseTeamEnvido, refuseTeamFlor, refuseTeamTruco, type Team, type TeamGameState, type TeamMode, type TeamPlayer } from "../shared/teamGameEngine";
+import { areFriends, claimFriendGameInvite, claimInPersonTableSeat, confirmInPersonTableGuest, createActiveOnlineGame, createFriendGameInvite, createInPersonInviteToken, createInPersonTable, createUserNotification, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, listActiveOnlineGamePlayers, listInPersonTablePlayers, saveActiveOnlineGamePlayers, updateActiveOnlineGame, validateInPersonTableInvite } from "./db";
 import { onlineRooms, onlineMatches, onlineTournaments, onlineTournamentPlayers, users } from "../drizzle/schema";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { sdk } from "./_core/sdk";
@@ -59,8 +60,23 @@ interface RoomData {
   snapshotVersion: number | null;
 }
 
+type TeamParticipant = { userId: number; userName: string; seat: number; team: Team; socketId: string | null };
+interface TeamRoomData {
+  code: string;
+  mode: TeamMode;
+  maxPlayers: number;
+  hostUserId: number;
+  participants: Map<TeamPlayer, TeamParticipant>;
+  state: TeamGameState | null;
+  waitingTimer: ReturnType<typeof setTimeout> | null;
+  turnTimer: ReturnType<typeof setTimeout> | null;
+  startTime: number;
+  snapshotVersion: number | null;
+}
+
 // ── In-memory state ──
 const rooms = new Map<string, RoomData>();
+const teamRooms = new Map<string, TeamRoomData>();
 const matchmakingQueue: { socketId: string; userId: number; userName: string; mode: string }[] = [];
 const socketToRoom = new Map<string, string>(); // socketId -> roomCode
 const socketToUser = new Map<string, { userId: number; userName: string }>(); // socketId -> user info
@@ -180,7 +196,7 @@ function genCode(): string {
   return code;
 }
 
-function getTurnDeadline(state: GameState): Date | null {
+function getTurnDeadline(state: GameState | TeamGameState): Date | null {
   if (["waiting", "between_hands", "game_over"].includes(state.phase)) return null;
   return new Date(state.turnStartedAt + state.turnTimeoutMs);
 }
@@ -212,6 +228,25 @@ function roomFromSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof getAct
     waitingStartedAt: new Date(snapshot.createdAt).getTime(),
     turnTimer: null,
     turnTimerPlayer: null,
+    snapshotVersion: snapshot.version,
+  };
+}
+
+async function teamRoomFromSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof getActiveOnlineGameByRoom>>>): Promise<TeamRoomData | null> {
+  const state = JSON.parse(snapshot.stateJson) as TeamGameState;
+  if (state.kind !== "team") return null;
+  const players = await listActiveOnlineGamePlayers(snapshot.roomCode);
+  if (players.length !== state.playerOrder.length) return null;
+  return {
+    code: snapshot.roomCode,
+    mode: state.mode,
+    maxPlayers: state.playerOrder.length,
+    hostUserId: players.find(player => player.seat === 1)?.userId ?? snapshot.player1Id,
+    participants: new Map(players.map(player => [`p${player.seat}` as TeamPlayer, { userId: player.userId, userName: player.userName, seat: player.seat, team: player.team, socketId: null }])),
+    state,
+    waitingTimer: null,
+    turnTimer: null,
+    startTime: new Date(snapshot.createdAt).getTime(),
     snapshotVersion: snapshot.version,
   };
 }
@@ -380,14 +415,16 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Mesa Presencial: cria uma sala privada liberada por QR Code temporário ──
-    socket.on("create_in_person_table", async (_data, cb) => {
+    socket.on("create_in_person_table", async (data: { mode?: "1v1" | "2v2" | "3v3" }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Autenticação necessária" });
       if (userToRoom.has(user.userId)) return cb?.({ error: "Você já está em uma mesa" });
+      const inPersonMode = data?.mode === "2v2" || data?.mode === "3v3" ? data.mode : "1v1";
 
       const code = genCode();
       const inviteToken = createInPersonInviteToken();
       const expiresAt = new Date(Date.now() + ROOM_WAIT_TIMEOUT_MS);
+      let tableCapacity = inPersonMode === "1v1" ? 2 : inPersonMode === "2v2" ? 4 : 6;
       const room: RoomData = {
         code,
         hostSocket: socket.id,
@@ -396,7 +433,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         guestUserId: null,
         hostName: user.userName,
         guestName: null,
-        mode: "1v1",
+        mode: inPersonMode,
         stakeTier: "amistoso",
         region: "BR",
         isPrivate: true,
@@ -422,7 +459,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           code,
           hostId: user.userId,
           hostName: user.userName,
-          mode: "1v1",
+          mode: inPersonMode,
           stakeTier: "amistoso",
           region: "BR",
           isPrivate: true,
@@ -430,17 +467,50 @@ export function initSocketServer(httpServer: HttpServer): Server {
           status: "waiting",
           tournamentId: null,
         });
-        await createInPersonTable({ roomCode: code, hostId: user.userId, inviteToken, expiresAt });
+        const table = await createInPersonTable({ roomCode: code, hostId: user.userId, hostName: user.userName, inviteToken, expiresAt, mode: inPersonMode });
+        tableCapacity = table.maxPlayers;
         await createUserNotification({
           userId: user.userId,
           kind: "in_person_table",
           title: "Mesa Presencial criada",
-          body: "Mostre o QR Code a quem vai jogar com você. A entrada fica disponível por 15 minutos.",
-          metadata: { roomCode: code },
+          body: `Mostre o QR Code para completar a mesa ${inPersonMode === "1v1" ? "mano a mano" : inPersonMode === "2v2" ? "de duplas" : "de trios"}. A entrada fica disponível por 15 minutos.`,
+          metadata: { roomCode: code, mode: inPersonMode, maxPlayers: table.maxPlayers },
         });
       } catch (error) {
         console.error("[In-person] Could not create table", error);
         return cb?.({ error: "Não foi possível criar a Mesa Presencial. Tente novamente." });
+      }
+
+      if (inPersonMode !== "1v1") {
+        const teamRoom: TeamRoomData = {
+          code,
+          mode: inPersonMode,
+          maxPlayers: tableCapacity,
+          hostUserId: user.userId,
+          participants: new Map([["p1", { userId: user.userId, userName: user.userName, seat: 1, team: "A", socketId: socket.id }]]),
+          state: null,
+          waitingTimer: null,
+          turnTimer: null,
+          startTime: 0,
+          snapshotVersion: null,
+        };
+        teamRooms.set(code, teamRoom);
+        socketToRoom.set(socket.id, code);
+        userToRoom.set(user.userId, code);
+        socket.join(code);
+        teamRoom.waitingTimer = setTimeout(() => {
+          const active = teamRooms.get(code);
+          if (!active || active.participants.size >= active.maxPlayers) return;
+          io.to(code).emit("room_timeout", { code });
+          teamRooms.delete(code);
+          active.participants.forEach(participant => {
+            if (participant.socketId) socketToRoom.delete(participant.socketId);
+            userToRoom.delete(participant.userId);
+          });
+          void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, code))).catch(() => {});
+          broadcastWaitingRooms();
+        }, ROOM_WAIT_TIMEOUT_MS);
+        return cb?.({ success: true, code, inviteToken, mode: inPersonMode, maxPlayers: tableCapacity, expiresAt: expiresAt.toISOString() });
       }
 
       rooms.set(code, room);
@@ -457,7 +527,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         void db().then(d => d.update(onlineRooms).set({ status: "abandoned" }).where(eq(onlineRooms.code, code))).catch(() => {});
         broadcastWaitingRooms();
       }, ROOM_WAIT_TIMEOUT_MS);
-      cb?.({ success: true, code, inviteToken, expiresAt: expiresAt.toISOString() });
+      cb?.({ success: true, code, inviteToken, mode: inPersonMode, maxPlayers: inPersonMode === "1v1" ? 2 : inPersonMode === "2v2" ? 4 : 6, expiresAt: expiresAt.toISOString() });
     });
 
     // ── Create Room ──
@@ -635,6 +705,45 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!user) return cb?.({ error: "Not authenticated" });
 
       const code = data.code.toUpperCase();
+      const teamInvite = typeof data.inPersonToken === "string" && data.inPersonToken.length >= 20
+        ? await validateInPersonTableInvite(code, data.inPersonToken, user.userId)
+        : null;
+      if (teamInvite?.valid && teamInvite.mode && teamInvite.mode !== "1v1") {
+        const claim = await claimInPersonTableSeat({ roomCode: code, inviteToken: data.inPersonToken!, userId: user.userId, userName: user.userName });
+        if (!claim.valid || !claim.mode || !claim.seat || !claim.team || !claim.participants) return cb?.({ error: claim.reason || "Não foi possível ocupar esta vaga" });
+        let teamRoom = teamRooms.get(code);
+        if (!teamRoom) {
+          teamRoom = {
+            code,
+            mode: claim.mode as TeamMode,
+            maxPlayers: claim.maxPlayers || claim.participants.length,
+            hostUserId: claim.participants[0].userId,
+            participants: new Map(),
+          state: null,
+          waitingTimer: null,
+          turnTimer: null,
+            startTime: 0,
+            snapshotVersion: null,
+          };
+          teamRooms.set(code, teamRoom);
+        }
+        teamRoom.participants = new Map(claim.participants.map(participant => {
+          const role = `p${participant.seat}` as TeamPlayer;
+          return [role, { ...participant, socketId: participant.userId === user.userId ? socket.id : (teamRoom!.participants.get(role)?.socketId ?? null) }];
+        }));
+        socketToRoom.set(socket.id, code);
+        userToRoom.set(user.userId, code);
+        socket.join(code);
+        io.to(code).emit("in_person_players_updated", { code, mode: claim.mode, maxPlayers: claim.maxPlayers, participants: claim.participants });
+        if (!claim.ready) {
+          return cb?.({ success: true, waiting: true, code, mode: claim.mode, team: claim.team, seat: claim.seat, maxPlayers: claim.maxPlayers, participants: claim.participants });
+        }
+        if (teamRoom.waitingTimer) { clearTimeout(teamRoom.waitingTimer); teamRoom.waitingTimer = null; }
+        await (await db()).update(onlineRooms).set({ status: "playing" }).where(eq(onlineRooms.code, code));
+        cb?.({ success: true, waiting: false, code, mode: claim.mode, team: claim.team, seat: claim.seat, maxPlayers: claim.maxPlayers, participants: claim.participants });
+        setTimeout(() => { void startTeamGame(io, code); }, 800);
+        return;
+      }
       let room = rooms.get(code);
       if (!room) {
         const [storedRoom] = await (await db()).select().from(onlineRooms)
@@ -851,6 +960,72 @@ export function initSocketServer(httpServer: HttpServer): Server {
       console.log(`[Socket] Room ${roomCode} cancelled by host ${user.userName}`);
       broadcastWaitingRooms();
       cb?.({ ok: true });
+    });
+
+    // ── Team Game Actions (Mesa Presencial 2×2 e 3×3) ──
+    async function endTeamGame(room: TeamRoomData, winner: Team) {
+      if (!room.state) return;
+      await persistTeamRoomState(room, "team_game_finished");
+      await (await db()).update(onlineRooms).set({ status: "finished" }).where(eq(onlineRooms.code, room.code));
+      playersInGame = Math.max(0, playersInGame - room.maxPlayers);
+      io.to(room.code).emit("game_over", { winner, score: room.state.score, teamGame: true });
+      room.participants.forEach(participant => userToRoom.delete(participant.userId));
+      broadcastOnlineStats();
+    }
+
+    async function dealNextTeamHand(room: TeamRoomData, eventId: string) {
+      if (!room.state || room.state.phase === "game_over") return;
+      room.state = dealTeamHand(room.state);
+      await persistTeamRoomState(room, eventId);
+      emitTeamGameState(io, room);
+    }
+
+    socket.on("team_play_card", async (data: { cardId: string }, cb) => {
+      const code = socketToRoom.get(socket.id);
+      const room = code ? teamRooms.get(code) : null;
+      const player = room ? teamRoleForSocket(room, socket.id) : null;
+      if (!room || !room.state || !player) return cb?.({ error: "No team game" });
+      try {
+        const result = playTeamCard(room.state, player, data.cardId);
+        const nextState = result.state;
+        room.state = nextState;
+        if (!await persistTeamRoomState(room, `team_play_card:${data.cardId}`)) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
+        emitTeamGameState(io, room);
+        if (result.roundResult) io.to(room.code).emit("round_result", { result: result.roundResult, roundWins: nextState.roundWins, cards: result.completedTrick || [], teamGame: true });
+        if (result.handWinner) {
+          io.to(room.code).emit("hand_winner", { winner: result.handWinner, winnerName: `Equipe ${result.handWinner}`, points: TRUCO_POINTS[nextState.trucoLevel] || 1, score: nextState.score, teamGame: true });
+          if (result.gameWinner) await endTeamGame(room, result.gameWinner);
+          else setTimeout(() => { void dealNextTeamHand(room, "next_hand:team_play_card"); }, 1500);
+        }
+        cb?.({ ok: true });
+      } catch (error: any) { cb?.({ error: error.message }); }
+    });
+
+    socket.on("team_action", async (data: { type: string; action?: string }, cb) => {
+      const code = socketToRoom.get(socket.id);
+      const room = code ? teamRooms.get(code) : null;
+      const player = room ? teamRoleForSocket(room, socket.id) : null;
+      if (!room || !room.state || !player) return cb?.({ error: "No team game" });
+      try {
+        let result: { state: TeamGameState; handWinner?: Team; gameWinner?: Team; envidoWinner?: Team; florWinner?: Team; points?: number } | null = null;
+        switch (data.type) {
+          case "call_truco": room.state = callTeamTruco(room.state, player); emitTeamToPlayer(io, room, room.state.turn, "truco_called", { level: room.state.trucoLevel, callerName: room.participants.get(player)?.userName }); break;
+          case "accept_truco": room.state = acceptTeamTruco(room.state, player); io.to(room.code).emit("truco_accepted", { level: room.state.trucoLevel }); break;
+          case "refuse_truco": result = refuseTeamTruco(room.state, player); room.state = result.state; io.to(room.code).emit("truco_refused", { winnerName: `Equipe ${result.handWinner}` }); break;
+          case "call_envido": room.state = callTeamEnvido(room.state, player, data.action || "envido"); emitTeamToPlayer(io, room, room.state.turn, "envido_called", { action: data.action, bet: room.state.envidoBet, callerName: room.participants.get(player)?.userName }); break;
+          case "accept_envido": result = acceptTeamEnvido(room.state, player); room.state = result.state; io.to(room.code).emit("envido_resolved", { accepted: true, winnerName: `Equipe ${result.envidoWinner}`, points: result.points, teamGame: true }); break;
+          case "refuse_envido": result = refuseTeamEnvido(room.state, player); room.state = result.state; io.to(room.code).emit("envido_resolved", { accepted: false, points: result.points, teamGame: true }); break;
+          case "call_flor": room.state = callTeamFlor(room.state, player, data.action || "flor"); emitTeamToPlayer(io, room, room.state.turn, "flor_called", { action: data.action, bet: room.state.florBet, callerName: room.participants.get(player)?.userName }); break;
+          case "accept_flor": result = acceptTeamFlor(room.state, player); room.state = result.state; io.to(room.code).emit("flor_resolved", { accepted: true, winnerName: `Equipe ${result.florWinner}`, points: result.points, teamGame: true }); break;
+          case "refuse_flor": result = refuseTeamFlor(room.state, player); room.state = result.state; io.to(room.code).emit("flor_resolved", { accepted: false, points: result.points, teamGame: true }); break;
+          default: throw new Error("Ação de equipe inválida");
+        }
+        if (!await persistTeamRoomState(room, `team_action:${data.type}`)) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
+        emitTeamGameState(io, room);
+        if (result?.gameWinner) await endTeamGame(room, result.gameWinner);
+        else if (result?.handWinner) setTimeout(() => { void dealNextTeamHand(room, `next_hand:${data.type}`); }, 1500);
+        cb?.({ ok: true });
+      } catch (error: any) { cb?.({ error: error.message }); }
     });
 
     // ── Game Actions ──
@@ -1570,6 +1745,24 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!room || !room.state) {
         const snapshot = await getActiveOnlineGameForUser(userId);
         if (!snapshot || snapshot.status !== "active") return cb?.({ error: "No active game found" });
+        const snapshotState = JSON.parse(snapshot.stateJson) as { kind?: string };
+        if (snapshotState.kind === "team") {
+          let teamRoom = teamRooms.get(snapshot.roomCode);
+          if (!teamRoom) {
+            teamRoom = await teamRoomFromSnapshot(snapshot) ?? undefined;
+            if (!teamRoom) return cb?.({ error: "Não foi possível recuperar a mesa por equipes" });
+            teamRooms.set(snapshot.roomCode, teamRoom);
+          }
+          const role = Array.from(teamRoom.participants.entries()).find(([, participant]) => participant.userId === userId)?.[0];
+          if (!role || !teamRoom.state || teamRoom.state.phase === "game_over") return cb?.({ error: "Partida por equipes indisponível" });
+          const participant = teamRoom.participants.get(role)!;
+          participant.socketId = socket.id;
+          socketToRoom.set(socket.id, snapshot.roomCode);
+          userToRoom.set(userId, snapshot.roomCode);
+          socket.join(snapshot.roomCode);
+          emitTeamGameState(io, teamRoom);
+          return cb?.({ success: true, roomCode: snapshot.roomCode, role, teamGame: true, reconnected: true });
+        }
         roomCode = snapshot.roomCode;
         const alreadyHydrated = rooms.get(roomCode);
         if (alreadyHydrated) {
@@ -1847,6 +2040,95 @@ async function startGame(io: Server, code: string) {
   setTimeout(() => {
     emitGameState(io, room);
   }, 150);
+}
+
+function teamRoleForSocket(room: TeamRoomData, socketId: string): TeamPlayer | null {
+  for (const [role, participant] of Array.from(room.participants.entries())) if (participant.socketId === socketId) return role;
+  return null;
+}
+
+function teamNames(room: TeamRoomData): Record<TeamPlayer, string> {
+  return Object.fromEntries(Array.from(room.participants.entries()).map(([role, participant]) => [role, participant.userName])) as Record<TeamPlayer, string>;
+}
+
+async function persistTeamRoomState(room: TeamRoomData, eventId: string): Promise<boolean> {
+  if (!room.state || room.snapshotVersion === null) return true;
+  const persisted = await updateActiveOnlineGame(room.code, room.snapshotVersion, {
+    stateJson: JSON.stringify(room.state),
+    turnDeadline: getTurnDeadline(room.state),
+    lastEventId: eventId,
+    player1ReconnectedAt: undefined,
+    player2ReconnectedAt: undefined,
+    status: room.state.phase === "game_over" ? "finished" : "active",
+  });
+  if (persisted) { room.snapshotVersion += 1; return true; }
+  const latest = await getActiveOnlineGameByRoom(room.code);
+  if (latest?.status === "active") { room.state = JSON.parse(latest.stateJson) as TeamGameState; room.snapshotVersion = latest.version; }
+  return false;
+}
+
+function emitTeamGameState(io: Server, room: TeamRoomData) {
+  if (!room.state) return;
+  const names = teamNames(room);
+  const participants = Array.from(room.participants.entries()).map(([role, participant]) => ({ role, userId: participant.userId, userName: participant.userName, seat: participant.seat, team: participant.team }));
+  const turnTimeLeftMs = Math.max(0, (room.state.turnStartedAt + room.state.turnTimeoutMs) - Date.now());
+  for (const [role, participant] of Array.from(room.participants.entries())) {
+    if (!participant.socketId) continue;
+    const view = getTeamPlayerView(room.state, role);
+    io.to(participant.socketId).emit("game_state", {
+      ...view,
+      isTeamGame: true,
+      myRole: role,
+      currentPlayer: view.turn,
+      myName: participant.userName,
+      opponentName: participants.filter(item => item.team !== participant.team).map(item => item.userName).join(" · "),
+      names,
+      participants,
+      roomCode: room.code,
+      turnTimeoutMs: room.state.turnTimeoutMs,
+      turnTimeLeftMs,
+    });
+  }
+}
+
+function emitTeamToPlayer(io: Server, room: TeamRoomData, player: TeamPlayer, event: string, payload: Record<string, unknown>) {
+  const socketId = room.participants.get(player)?.socketId;
+  if (socketId) io.to(socketId).emit(event, payload);
+}
+
+async function startTeamGame(io: Server, code: string) {
+  const room = teamRooms.get(code);
+  if (!room || room.participants.size !== room.maxPlayers || room.state) return;
+  const first = room.participants.get("p1");
+  const second = room.participants.get("p2");
+  if (!first || !second) return;
+  const seed = randomInt(2147483646) + 1;
+  room.state = dealTeamHand(createTeamGameState(room.mode, seed));
+  room.startTime = Date.now();
+  try {
+    const snapshot = await createActiveOnlineGame({
+      roomCode: room.code,
+      player1Id: first.userId,
+      player1Name: first.userName,
+      player2Id: second.userId,
+      player2Name: second.userName,
+      stateJson: JSON.stringify(room.state),
+      version: 1,
+      status: "active",
+      turnDeadline: getTurnDeadline(room.state),
+      lastEventId: "team_game_started",
+    });
+    await saveActiveOnlineGamePlayers(room.code, Array.from(room.participants.values()).map(participant => ({ userId: participant.userId, userName: participant.userName, seat: participant.seat, team: participant.team })));
+    room.snapshotVersion = snapshot?.version ?? 1;
+  } catch (error) {
+    room.state = null;
+    io.to(code).emit("game_error", { message: "Não foi possível preparar a partida por equipes." });
+    console.error(`[startTeamGame] Snapshot creation failed for ${code}:`, error);
+    return;
+  }
+  playersInGame += room.maxPlayers;
+  io.to(code).emit("game_started", { names: teamNames(room), mode: room.mode, seed, teamGame: true, participants: Array.from(room.participants.values()) });
+  setTimeout(() => emitTeamGameState(io, room), 150);
 }
 
 // ── Helper: compute which actions a player can take ──

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, asc, desc, eq, gt, gte, isNotNull, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame, pushSubscriptions, tournamentPushDeliveries, scheduledJobs, userNotifications, inPersonTables } from "../drizzle/schema";
+import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame, pushSubscriptions, tournamentPushDeliveries, scheduledJobs, userNotifications, inPersonTables, inPersonTablePlayers, activeOnlineGamePlayers } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 import mysql from 'mysql2/promise';
@@ -402,25 +402,44 @@ export function isInPersonInviteExpired(expiresAt: Date | string, now = new Date
   return new Date(expiresAt).getTime() <= now.getTime();
 }
 
+export type InPersonMode = "1v1" | "2v2" | "3v3";
+
+export function getInPersonModeConfig(mode: InPersonMode) {
+  if (mode === "2v2") return { maxPlayers: 4, teamSize: 2 } as const;
+  if (mode === "3v3") return { maxPlayers: 6, teamSize: 3 } as const;
+  return { maxPlayers: 2, teamSize: 1 } as const;
+}
+
 export async function createInPersonTable(input: {
   roomCode: string;
   hostId: number;
+  hostName: string;
   inviteToken: string;
   expiresAt: Date;
-}): Promise<void> {
+  mode?: InPersonMode;
+}): Promise<{ id: number; maxPlayers: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const mode = input.mode ?? "1v1";
+  const { maxPlayers } = getInPersonModeConfig(mode);
   await db.insert(inPersonTables).values({
     roomCode: input.roomCode,
     hostId: input.hostId,
     inviteTokenHash: hashInPersonInviteToken(input.inviteToken),
     expiresAt: input.expiresAt,
     status: "waiting",
+    mode,
+    maxPlayers,
   });
+  const [table] = await db.select({ id: inPersonTables.id }).from(inPersonTables)
+    .where(eq(inPersonTables.roomCode, input.roomCode)).limit(1);
+  if (!table) throw new Error("In-person table was not persisted");
+  await db.insert(inPersonTablePlayers).values({ tableId: table.id, userId: input.hostId, userName: input.hostName, seat: 1, team: "A" });
+  return { id: table.id, maxPlayers };
 }
 
 /** Confere o convite sem revelá-lo; a reserva da vaga ainda é atômica na sala on-line. */
-export async function validateInPersonTableInvite(roomCode: string, inviteToken: string, userId: number): Promise<{ valid: boolean; reason?: string }> {
+export async function validateInPersonTableInvite(roomCode: string, inviteToken: string, userId: number): Promise<{ valid: boolean; reason?: string; mode?: InPersonMode; maxPlayers?: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [table] = await db.select().from(inPersonTables)
@@ -433,7 +452,7 @@ export async function validateInPersonTableInvite(roomCode: string, inviteToken:
   }
   if (table.hostId === userId) return { valid: false, reason: "Você já está nesta mesa" };
   if (table.inviteTokenHash !== hashInPersonInviteToken(inviteToken)) return { valid: false, reason: "QR Code inválido" };
-  return { valid: true };
+  return { valid: true, mode: table.mode as InPersonMode, maxPlayers: table.maxPlayers };
 }
 
 export async function confirmInPersonTableGuest(roomCode: string, userId: number): Promise<void> {
@@ -442,6 +461,78 @@ export async function confirmInPersonTableGuest(roomCode: string, userId: number
   await db.update(inPersonTables)
     .set({ guestId: userId, status: "playing", joinedAt: new Date() })
     .where(and(eq(inPersonTables.roomCode, roomCode), eq(inPersonTables.status, "waiting")));
+}
+
+export type InPersonTableClaim = {
+  valid: boolean;
+  reason?: string;
+  tableId?: number;
+  mode?: InPersonMode;
+  maxPlayers?: number;
+  seat?: number;
+  team?: "A" | "B";
+  ready?: boolean;
+  participants?: Array<{ userId: number; userName: string; seat: number; team: "A" | "B" }>;
+};
+
+/** Reserva uma vaga em ordem de entrada sem deixar duas instâncias ocuparem o mesmo assento. */
+export async function claimInPersonTableSeat(input: { roomCode: string; inviteToken: string; userId: number; userName: string }): Promise<InPersonTableClaim> {
+  const pool = await getRawPool();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [tableRows] = await connection.execute<mysql.RowDataPacket[]>("SELECT * FROM `inPersonTables` WHERE `roomCode` = ? FOR UPDATE", [input.roomCode]);
+    const table = tableRows[0];
+    if (!table || table.status !== "waiting") { await connection.rollback(); return { valid: false, reason: "Mesa presencial indisponível" }; }
+    if (isInPersonInviteExpired(table.expiresAt)) {
+      await connection.execute("UPDATE `inPersonTables` SET `status` = 'expired' WHERE `id` = ?", [table.id]);
+      await connection.commit();
+      return { valid: false, reason: "Convite presencial expirado" };
+    }
+    if (table.inviteTokenHash !== hashInPersonInviteToken(input.inviteToken)) { await connection.rollback(); return { valid: false, reason: "QR Code inválido" }; }
+    const [existingRows] = await connection.execute<mysql.RowDataPacket[]>("SELECT `id` FROM `inPersonTablePlayers` WHERE `tableId` = ? AND `userId` = ?", [table.id, input.userId]);
+    if (existingRows.length) { await connection.rollback(); return { valid: false, reason: "Você já está nesta mesa" }; }
+    const [participantsRows] = await connection.execute<mysql.RowDataPacket[]>("SELECT `userId`, `userName`, `seat`, `team` FROM `inPersonTablePlayers` WHERE `tableId` = ? ORDER BY `seat` ASC FOR UPDATE", [table.id]);
+    const maxPlayers = Number(table.maxPlayers);
+    if (participantsRows.length >= maxPlayers) { await connection.rollback(); return { valid: false, reason: "Mesa presencial completa" }; }
+    const seat = participantsRows.length + 1;
+    const team = seat % 2 === 1 ? "A" : "B";
+    await connection.execute("INSERT INTO `inPersonTablePlayers` (`tableId`, `userId`, `userName`, `seat`, `team`) VALUES (?, ?, ?, ?, ?)", [table.id, input.userId, input.userName, seat, team]);
+    const ready = seat === maxPlayers;
+    await connection.execute("UPDATE `inPersonTables` SET `guestId` = COALESCE(`guestId`, ?), `status` = ?, `joinedAt` = COALESCE(`joinedAt`, NOW()) WHERE `id` = ?", [input.userId, ready ? "playing" : "waiting", table.id]);
+    const participants = [...participantsRows, { userId: input.userId, userName: input.userName, seat, team }]
+      .map(row => ({ userId: Number(row.userId), userName: String(row.userName), seat: Number(row.seat), team: row.team as "A" | "B" }));
+    await connection.commit();
+    return { valid: true, tableId: Number(table.id), mode: table.mode as InPersonMode, maxPlayers, seat, team, ready, participants };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function listInPersonTablePlayers(roomCode: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ userId: inPersonTablePlayers.userId, userName: inPersonTablePlayers.userName, seat: inPersonTablePlayers.seat, team: inPersonTablePlayers.team })
+    .from(inPersonTablePlayers)
+    .innerJoin(inPersonTables, eq(inPersonTablePlayers.tableId, inPersonTables.id))
+    .where(eq(inPersonTables.roomCode, roomCode))
+    .orderBy(asc(inPersonTablePlayers.seat));
+}
+
+export async function saveActiveOnlineGamePlayers(roomCode: string, players: Array<{ userId: number; userName: string; seat: number; team: "A" | "B" }>): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(activeOnlineGamePlayers).where(eq(activeOnlineGamePlayers.roomCode, roomCode));
+  if (players.length) await db.insert(activeOnlineGamePlayers).values(players.map(player => ({ roomCode, ...player })));
+}
+
+export async function listActiveOnlineGamePlayers(roomCode: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(activeOnlineGamePlayers).where(eq(activeOnlineGamePlayers.roomCode, roomCode)).orderBy(asc(activeOnlineGamePlayers.seat));
 }
 
 export async function createLocalUser(data: {
@@ -730,14 +821,20 @@ export async function getActiveOnlineGameByRoom(roomCode: string) {
 export async function getActiveOnlineGameForUser(userId: number) {
   const db = await getDb();
   if (!db) return null;
-  const rows = await db.select().from(activeOnlineGames)
+  const directRows = await db.select().from(activeOnlineGames)
     .where(and(
       eq(activeOnlineGames.status, "active"),
       or(eq(activeOnlineGames.player1Id, userId), eq(activeOnlineGames.player2Id, userId)),
     ))
     .orderBy(desc(activeOnlineGames.updatedAt))
     .limit(1);
-  return rows[0] ?? null;
+  if (directRows[0]) return directRows[0];
+  const teamRows = await db.select({ game: activeOnlineGames }).from(activeOnlineGamePlayers)
+    .innerJoin(activeOnlineGames, eq(activeOnlineGamePlayers.roomCode, activeOnlineGames.roomCode))
+    .where(and(eq(activeOnlineGamePlayers.userId, userId), eq(activeOnlineGames.status, "active")))
+    .orderBy(desc(activeOnlineGames.updatedAt))
+    .limit(1);
+  return teamRows[0]?.game ?? null;
 }
 
 /** Atualiza o snapshot apenas se a versão ainda corresponder ao estado lido. */
