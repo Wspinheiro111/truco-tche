@@ -51,6 +51,22 @@ try {
   }, resolve));
   if (!created?.tournamentId) throw new Error(`Criação falhou: ${created?.error || "erro desconhecido"}`);
 
+  const edited = await new Promise((resolve) => sockets[0].emit("update_tournament", {
+    tournamentId: created.tournamentId,
+    name: `Smoke Editado ${runId}`,
+    prize: "Prêmio confirmado",
+    maxPlayers: 4,
+    scheduledStartAt: "2026-12-20T19:00:00.000Z",
+  }, resolve));
+  if (!edited?.ok || edited.name !== `Smoke Editado ${runId}` || edited.prize !== "Prêmio confirmado") {
+    throw new Error(`Edição do organizador falhou: ${edited?.error || "resposta inválida"}`);
+  }
+  const intruderEdit = await new Promise((resolve) => sockets[1].emit("update_tournament", {
+    tournamentId: created.tournamentId,
+    name: "Tentativa indevida",
+  }, resolve));
+  if (!intruderEdit?.error) throw new Error("Jogador não organizador conseguiu editar o torneio");
+
   const readyToStart = waitFor(sockets[0], "tournament_ready_to_start");
   for (const socket of sockets.slice(1)) {
     const joined = await new Promise((resolve) => socket.emit("join_tournament", { tournamentId: created.tournamentId }, resolve));
@@ -67,6 +83,11 @@ try {
   const matchReady = sockets.map((socket) => waitFor(socket, "tournament_match_ready"));
   const started = await new Promise((resolve) => sockets[0].emit("start_tournament", { tournamentId: created.tournamentId }, resolve));
   if (!started?.ok) throw new Error(`Início manual falhou: ${started?.error || "erro desconhecido"}`);
+  const lockedEdit = await new Promise((resolve) => sockets[0].emit("update_tournament", {
+    tournamentId: created.tournamentId,
+    prize: "Alteração bloqueada",
+  }, resolve));
+  if (!lockedEdit?.error) throw new Error("Organizador conseguiu editar o torneio após o sorteio");
 
   const assignments = await Promise.all(matchReady);
   const distinctPlayers = new Set(assignments.map((assignment) => assignment.roomCode));
@@ -92,15 +113,27 @@ try {
     if (!reconnected?.success) throw new Error(`Anfitrião não recuperou o snapshot ${assignment.roomCode}`);
   }
 
+  const cancellable = await new Promise((resolve) => sockets[0].emit("create_tournament", {
+    name: `Smoke Cancelável ${runId}`,
+    maxPlayers: 2,
+  }, resolve));
+  if (!cancellable?.tournamentId) throw new Error(`Criação cancelável falhou: ${cancellable?.error || "erro desconhecido"}`);
+  const cancelled = await new Promise((resolve) => sockets[0].emit("cancel_tournament", { tournamentId: cancellable.tournamentId }, resolve));
+  if (!cancelled?.ok) throw new Error(`Cancelamento do organizador falhou: ${cancelled?.error || "erro desconhecido"}`);
+  const cancelledJoin = await new Promise((resolve) => sockets[1].emit("join_tournament", { tournamentId: cancellable.tournamentId }, resolve));
+  if (!cancelledJoin?.error) throw new Error("Jogador entrou em torneio já cancelado");
+
   console.log(JSON.stringify({
     ok: true,
     runId,
     tournamentId: created.tournamentId,
+    cancelledTournamentId: cancellable.tournamentId,
     userIds: registrations.map((registration) => registration.data.user.id),
     roomCodes: [...distinctPlayers],
     format: "1v1",
     tournamentStarted: true,
     manualConfirmationRequired: true,
+    organizerManagementValidated: true,
     hostRecoveredAfterGuestStarted: true,
   }));
 } finally {

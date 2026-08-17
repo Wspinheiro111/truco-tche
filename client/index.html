@@ -8144,6 +8144,12 @@ function ensureSocket() {
     }
   });
 
+  sio.on('tournament_updated', () => {
+    if (document.getElementById('ol-tab-tournaments')?.style.display !== 'none') {
+      loadOnlineTournaments();
+    }
+  });
+
   sio.on('tournament_player_joined', (data) => {
     // Update local cache and re-render without full reload
     if (_tournamentsData.length > 0) {
@@ -8943,6 +8949,7 @@ function renderTournamentsList(tournaments) {
                 : `<span style="font-size:.65rem;color:var(--txt3);padding:.3rem .5rem;border:1px solid var(--bdr);border-radius:var(--r)">🔴 Rodada ${t.currentRound + 1}</span>`
               }
               ${isCreator && isReadyToStart ? `<button onclick="startOnlineTournamentManually(${t.id})" style="background:var(--tg-gold,#c8a84b);color:#201400;border:none;padding:.38rem .65rem;border-radius:var(--r);font-size:.62rem;font-weight:800;cursor:pointer;white-space:nowrap">🎲 Sortear e iniciar</button>` : ''}
+              ${isCreator && isRegistering ? `<button onclick="editOnlineTournament(${t.id})" style="background:transparent;border:1px solid rgba(143,212,255,.5);color:#8fd4ff;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">✏️ Editar</button><button onclick="cancelOnlineTournament(${t.id})" style="background:transparent;border:1px solid rgba(255,80,80,.5);color:#ff8c8c;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">✖ Cancelar</button>` : ''}
               <button onclick="openTournamentBracket(${t.id})" style="background:transparent;border:1px solid rgba(200,168,75,.5);color:var(--tg-gold,#c8a84b);padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">🏆 Ver Chave</button>
               <button onclick="openPublicTournamentBracket(${t.id})" style="background:transparent;border:1px solid rgba(110,190,255,.48);color:#8fd4ff;padding:.3rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:600;cursor:pointer;white-space:nowrap">🔗 Página pública</button>
             </div>
@@ -8958,6 +8965,34 @@ function startOnlineTournamentManually(tournamentId) {
   sio.emit('start_tournament', { tournamentId }, (res) => {
     if (res?.error) { toast(res.error, 'warn'); return; }
     toast('🎲 Chave sorteada e campeonato iniciado!', 'win');
+    loadOnlineTournaments();
+  });
+}
+
+function editOnlineTournament(tournamentId) {
+  const tournament = _tournamentsData.find(t => Number(t.id) === Number(tournamentId));
+  if (!tournament) return;
+  const name = prompt('Nome do torneio:', tournament.name);
+  if (name === null) return;
+  const prize = prompt('Prêmio personalizado (deixe vazio para remover):', tournament.prize || '');
+  if (prize === null) return;
+  const capacity = prompt('Quantidade par de vagas (2 a 64):', String(tournament.maxPlayers));
+  if (capacity === null) return;
+  const currentSchedule = tournament.scheduledStartAt ? new Date(tournament.scheduledStartAt).toISOString().slice(0, 16) : '';
+  const scheduledStartAt = prompt('Horário previsto (AAAA-MM-DDTHH:MM, deixe vazio para remover):', currentSchedule);
+  if (scheduledStartAt === null) return;
+  sio.emit('update_tournament', { tournamentId, name, prize, maxPlayers: Number(capacity), scheduledStartAt: scheduledStartAt || null }, (res) => {
+    if (res?.error) { toast(res.error, 'warn'); return; }
+    toast('✔ Informações do campeonato atualizadas.', 'win');
+    loadOnlineTournaments();
+  });
+}
+
+function cancelOnlineTournament(tournamentId) {
+  if (!confirm('Cancelar este campeonato? As inscrições serão encerradas e a chave não será sorteada.')) return;
+  sio.emit('cancel_tournament', { tournamentId }, (res) => {
+    if (res?.error) { toast(res.error, 'warn'); return; }
+    toast('Campeonato cancelado. Os inscritos foram avisados.', 'info');
     loadOnlineTournaments();
   });
 }

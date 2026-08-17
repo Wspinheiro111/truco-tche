@@ -162,3 +162,8 @@
 - [x] Cobrir página pública, autorização de certificados, prêmio e horário com testes e smoke de torneio.
 - [x] Ajustar a largura e a hierarquia visual da página pública da chave para desktop e mobile após a inspeção da prévia.
 - [x] Executar smoke de torneio com chave completa, comprovando que o sorteio só começa após confirmação manual do organizador.
+- [x] Permitir que somente o organizador edite nome, prêmio, horário de referência e vagas enquanto o torneio estiver em inscrições abertas.
+- [x] Permitir que somente o organizador cancele um torneio antes do sorteio da chave e notificar os inscritos.
+- [x] Bloquear edição e cancelamento após o início, preservando a integridade da chave e dos resultados.
+- [x] Adicionar controles de gestão no card do organizador e cobrir permissões, edição e cancelamento com smoke multiplayer.
+- [x] Executar smoke do organizador: editar dados, bloquear intruso, cancelar inscrições abertas e bloquear mudanças após sorteio.

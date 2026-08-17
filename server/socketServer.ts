@@ -1233,6 +1233,70 @@ export function initSocketServer(httpServer: HttpServer): Server {
       }
     });
 
+    socket.on("update_tournament", async (data: { tournamentId: number; name?: string; prize?: string | null; maxPlayers?: number; scheduledStartAt?: string | null }, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      try {
+        const d = await db();
+        const [tournament] = await d.select().from(onlineTournaments)
+          .where(eq(onlineTournaments.id, data.tournamentId));
+        if (!tournament) return cb?.({ error: "Torneio não encontrado" });
+        if (tournament.creatorId !== user.userId) return cb?.({ error: "Somente o organizador pode editar o torneio" });
+        if (tournament.status !== "registering") return cb?.({ error: "A chave já foi sorteada e não pode mais ser alterada" });
+
+        const players = await d.select({ id: onlineTournamentPlayers.id }).from(onlineTournamentPlayers)
+          .where(eq(onlineTournamentPlayers.tournamentId, data.tournamentId));
+        const maxPlayers = data.maxPlayers === undefined ? tournament.maxPlayers : Number(data.maxPlayers);
+        const capacityError = validateOneVsOneCapacity(maxPlayers);
+        if (capacityError) return cb?.({ error: capacityError });
+        if (maxPlayers < players.length) return cb?.({ error: `Existem ${players.length} inscritos; aumente ou mantenha as vagas` });
+        const scheduledStartAt = data.scheduledStartAt === undefined
+          ? tournament.scheduledStartAt
+          : data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
+        if (scheduledStartAt && Number.isNaN(scheduledStartAt.getTime())) return cb?.({ error: "Horário de referência inválido" });
+        const name = data.name === undefined ? tournament.name : data.name.trim();
+        if (!name) return cb?.({ error: "Informe o nome do torneio" });
+
+        await d.update(onlineTournaments).set({
+          name,
+          prize: data.prize === undefined ? tournament.prize : data.prize?.trim() || null,
+          maxPlayers,
+          totalRounds: roundCountForCapacity(maxPlayers),
+          scheduledStartAt,
+        }).where(eq(onlineTournaments.id, data.tournamentId));
+
+        const payload = { tournamentId: data.tournamentId, name, prize: data.prize === undefined ? tournament.prize : data.prize?.trim() || null, maxPlayers, scheduledStartAt };
+        io.emit("tournament_updated", payload);
+        cb?.({ ok: true, ...payload });
+      } catch (error: any) {
+        cb?.({ error: error?.message || "Não foi possível editar o torneio" });
+      }
+    });
+
+    socket.on("cancel_tournament", async (data: { tournamentId: number }, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      try {
+        const d = await db();
+        const [tournament] = await d.select().from(onlineTournaments)
+          .where(eq(onlineTournaments.id, data.tournamentId));
+        if (!tournament) return cb?.({ error: "Torneio não encontrado" });
+        if (tournament.creatorId !== user.userId) return cb?.({ error: "Somente o organizador pode cancelar o torneio" });
+        if (tournament.status !== "registering") return cb?.({ error: "A chave já foi sorteada e não pode mais ser cancelada" });
+        await d.update(onlineTournaments).set({ status: "cancelled" }).where(eq(onlineTournaments.id, data.tournamentId));
+        const regTimer = tournamentRegisterTimers.get(data.tournamentId);
+        if (regTimer) {
+          clearTimeout(regTimer);
+          tournamentRegisterTimers.delete(data.tournamentId);
+        }
+        const payload = { tournamentId: data.tournamentId, reason: "Cancelado pelo organizador" };
+        io.emit("tournament_cancelled", payload);
+        cb?.({ ok: true });
+      } catch (error: any) {
+        cb?.({ error: error?.message || "Não foi possível cancelar o torneio" });
+      }
+    });
+
     // ── Tournament: recover a ready private match from persistent storage ──
     socket.on("get_tournament_match", async (_data, cb) => {
       const user = socketToUser.get(socket.id);
