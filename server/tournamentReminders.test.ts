@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildTournamentReminderPayload, getTournamentReminderKind } from "./tournamentReminders";
+import { buildTournamentReminderPayload, getTournamentReminderKind, scheduledCallbackErrorStatus } from "./tournamentReminders";
+import { ForbiddenError } from "@shared/_core/errors";
 
 describe("tournament reminder schedule", () => {
   it("selects only the one-hour and fifteen-minute delivery windows", () => {
@@ -20,5 +21,10 @@ describe("tournament reminder schedule", () => {
     expect(payload.body).toContain("15 minutos");
     expect(payload.tag).toBe("tournament-42-fifteen_minutes");
     expect(payload.url).toBe("/tournament/42");
+  });
+
+  it("preserves authorization failures instead of converting them into server errors", () => {
+    expect(scheduledCallbackErrorStatus(ForbiddenError("cron-only"))).toBe(403);
+    expect(scheduledCallbackErrorStatus(new Error("unexpected"))).toBe(500);
   });
 });

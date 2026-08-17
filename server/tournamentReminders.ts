@@ -7,6 +7,7 @@ import {
   removePushSubscriptionById,
 } from "./db";
 import { sdk } from "./_core/sdk";
+import { HttpError } from "@shared/_core/errors";
 
 export const TOURNAMENT_REMINDER_JOB_NAME = "tournament-reminders";
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -34,6 +35,10 @@ export function buildTournamentReminderPayload(input: {
     tag: `tournament-${input.tournamentId}-${input.reminderKind}`,
     url: `/tournament/${input.tournamentId}`,
   });
+}
+
+export function scheduledCallbackErrorStatus(error: unknown): number {
+  return error instanceof HttpError ? error.statusCode : 500;
 }
 
 function configureWebPush(): void {
@@ -101,7 +106,7 @@ export async function tournamentRemindersHandler(req: Request, res: Response) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[Tournament reminders] Scheduled execution failed", error);
-    return res.status(500).json({
+    return res.status(scheduledCallbackErrorStatus(error)).json({
       error: message,
       context: { url: req.originalUrl },
       timestamp: new Date().toISOString(),

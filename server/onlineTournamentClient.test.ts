@@ -79,5 +79,6 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain("Notification.requestPermission()");
     expect(clientSource).toContain("push.subscribe");
     expect(clientSource).toContain("push.unsubscribe");
+    expect(clientSource).toContain("A permissão foi recusada");
   });
 });
