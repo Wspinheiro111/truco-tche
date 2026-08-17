@@ -10,6 +10,7 @@ import { serveStatic, setupVite } from "./vite";
 import { initSocketServer } from "../socketServer";
 import { verifyMercadoPagoWebhookSignature } from "../mercadopago";
 import { registerStorageProxy } from "./storageProxy";
+import { registerPublicTournamentRoutes } from "../publicTournament";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -37,6 +38,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
+  registerPublicTournamentRoutes(app);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // tRPC API

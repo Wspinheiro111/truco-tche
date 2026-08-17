@@ -28,4 +28,25 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain("downloadTournamentCertificate(result)");
     expect(clientSource).not.toContain("sio.emit('tournament_certificate_ready', result)");
   });
+
+  it("shows prize and reference time while reserving the draw for manual creator confirmation", () => {
+    expect(clientSource).toContain('id="ot-prize"');
+    expect(clientSource).toContain('id="ot-start-at"');
+    expect(clientSource).toContain("scheduledStartAt");
+    expect(clientSource).toContain("startOnlineTournamentManually");
+    expect(clientSource).toContain("start_tournament");
+  });
+
+  it("renders a no-login public bracket with periodic updates", () => {
+    expect(clientSource).toContain('id="public-tournament-scr"');
+    expect(clientSource).toContain("/api/public/tournaments/");
+    expect(clientSource).toContain("openPublicTournamentFromUrl");
+    expect(clientSource).toContain("publicTournamentPoll");
+  });
+
+  it("shows champion titles and protected certificate links in the profile", () => {
+    expect(clientSource).toContain("championTournaments");
+    expect(clientSource).toContain("Títulos na cancha");
+    expect(clientSource).toContain("📜 Certificado");
+  });
 });

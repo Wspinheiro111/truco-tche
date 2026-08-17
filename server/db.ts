@@ -81,6 +81,38 @@ export async function getDb() {
   }
 }
 
+export type ChampionTournamentHistory = {
+  id: number;
+  name: string;
+  prize: string | null;
+  completedAt: Date | null;
+  certificateUrl: string;
+};
+
+/** Retorna somente títulos cujo campeão confirmado é o usuário informado. */
+export async function getChampionTournamentHistory(userId: number): Promise<ChampionTournamentHistory[]> {
+  const database = await getDb();
+  if (!database) return [];
+  const tournaments = await database.select().from(onlineTournaments);
+  return tournaments.flatMap(tournament => {
+    if (tournament.status !== "completed" || !tournament.championCertificateUrl || !tournament.bracketData) return [];
+    try {
+      const bracket = JSON.parse(tournament.bracketData) as { rounds?: Array<Array<{ winnerId?: number | null }>> };
+      const winnerId = bracket.rounds?.at(-1)?.[0]?.winnerId;
+      if (winnerId !== userId) return [];
+      return [{
+        id: tournament.id,
+        name: tournament.name,
+        prize: tournament.prize,
+        completedAt: tournament.completedAt,
+        certificateUrl: tournament.championCertificateUrl,
+      }];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0));
+}
+
 async function getRawPool() {
   await getDb();
   if (!_pool) throw new Error("Database not available");
@@ -1466,12 +1498,14 @@ export async function getTournamentBracket(tournamentId: number) {
 
   return {
     id: tournament.id,
+    creatorId: tournament.creatorId,
     name: tournament.name,
     status: tournament.status,
     maxPlayers: tournament.maxPlayers,
     currentRound: tournament.currentRound,
     totalRounds: tournament.totalRounds,
     prize: tournament.prize,
+    scheduledStartAt: tournament.scheduledStartAt,
     createdAt: tournament.createdAt,
     completedAt: tournament.completedAt,
     players: players.map((p) => ({

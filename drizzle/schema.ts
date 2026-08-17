@@ -328,6 +328,8 @@ export const onlineTournaments = mysqlTable("onlineTournaments", {
   status: mysqlEnum("status", ["registering", "active", "completed", "cancelled"]).notNull().default("registering"),
   /** Prize description */
   prize: varchar("prize", { length: 200 }),
+  /** Horário de referência informado pelo organizador; o início continua manual. */
+  scheduledStartAt: timestamp("scheduledStartAt"),
   /** JSON: bracket data (stored as text for flexibility) */
   bracketData: text("bracketData"),
   /** Total rounds */

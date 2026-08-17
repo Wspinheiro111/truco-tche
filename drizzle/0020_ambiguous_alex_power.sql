@@ -1,0 +1,1 @@
+ALTER TABLE `onlineTournaments` ADD `scheduledStartAt` timestamp;

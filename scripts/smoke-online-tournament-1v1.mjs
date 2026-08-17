@@ -51,11 +51,22 @@ try {
   }, resolve));
   if (!created?.tournamentId) throw new Error(`Criação falhou: ${created?.error || "erro desconhecido"}`);
 
-  const matchReady = sockets.map((socket) => waitFor(socket, "tournament_match_ready"));
+  const readyToStart = waitFor(sockets[0], "tournament_ready_to_start");
   for (const socket of sockets.slice(1)) {
     const joined = await new Promise((resolve) => socket.emit("join_tournament", { tournamentId: created.tournamentId }, resolve));
     if (!joined?.ok) throw new Error(`Inscrição falhou: ${joined?.error || "erro desconhecido"}`);
   }
+
+  await readyToStart;
+  let startedPrematurely = false;
+  const prematureListener = () => { startedPrematurely = true; };
+  sockets.forEach((socket) => socket.once("tournament_match_ready", prematureListener));
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  if (startedPrematurely) throw new Error("A chave iniciou antes da confirmação manual do organizador");
+
+  const matchReady = sockets.map((socket) => waitFor(socket, "tournament_match_ready"));
+  const started = await new Promise((resolve) => sockets[0].emit("start_tournament", { tournamentId: created.tournamentId }, resolve));
+  if (!started?.ok) throw new Error(`Início manual falhou: ${started?.error || "erro desconhecido"}`);
 
   const assignments = await Promise.all(matchReady);
   const distinctPlayers = new Set(assignments.map((assignment) => assignment.roomCode));
@@ -89,6 +100,7 @@ try {
     roomCodes: [...distinctPlayers],
     format: "1v1",
     tournamentStarted: true,
+    manualConfirmationRequired: true,
     hostRecoveredAfterGuestStarted: true,
   }));
 } finally {

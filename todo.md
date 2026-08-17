@@ -155,3 +155,10 @@
 - [x] Cobrir a corrida em que o convidado entra primeiro e o anfitrião recupera a mesa já iniciada por snapshot persistido.
 - [x] Corrigir o fallback do certificado no cliente e validar emissão automática restrita ao campeão.
 - [x] Executar smoke real de torneio 1×1 entre duas instâncias, cobrindo mesa sorteada e recuperação do snapshot já iniciado.
+- [x] Criar página pública de chave de torneio acessível sem login e atualizada em tempo real.
+- [x] Exibir no perfil do campeão os torneios vencidos e links seguros para seus certificados em PDF.
+- [x] Permitir que o organizador informe prêmio personalizado e data/hora de referência ao criar torneio 1×1.
+- [x] Exibir o horário configurado aos participantes e exigir confirmação manual do organizador para sortear e iniciar a chave.
+- [x] Cobrir página pública, autorização de certificados, prêmio e horário com testes e smoke de torneio.
+- [x] Ajustar a largura e a hierarquia visual da página pública da chave para desktop e mobile após a inspeção da prévia.
+- [x] Executar smoke de torneio com chave completa, comprovando que o sorteio só começa após confirmação manual do organizador.

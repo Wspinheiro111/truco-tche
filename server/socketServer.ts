@@ -1093,7 +1093,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
     });
 
     // ── Online Tournament: create ──
-    socket.on("create_tournament", async (data: { name: string; maxPlayers: number; prize?: string }, cb) => {
+    socket.on("create_tournament", async (data: { name: string; maxPlayers: number; prize?: string; scheduledStartAt?: string }, cb) => {
       const user = socketToUser.get(socket.id);
       if (!user) return cb?.({ error: "Not authenticated" });
 
@@ -1101,6 +1101,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
       const capacityError = validateOneVsOneCapacity(maxP);
       if (capacityError) return cb?.({ error: capacityError });
       const totalRounds = roundCountForCapacity(maxP);
+      const scheduledStartAt = data.scheduledStartAt ? new Date(data.scheduledStartAt) : null;
+      if (scheduledStartAt && Number.isNaN(scheduledStartAt.getTime())) {
+        return cb?.({ error: "Horário de referência inválido" });
+      }
 
       try {
         const [result] = await (await db()).insert(onlineTournaments).values({
@@ -1109,6 +1113,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
           maxPlayers: maxP,
           totalRounds,
           prize: data.prize || null,
+          scheduledStartAt,
           status: "registering",
         }).$returningId();
 
@@ -1121,10 +1126,10 @@ export function initSocketServer(httpServer: HttpServer): Server {
         });
 
         socket.join(`tournament_${result.id}`);
-        cb?.({ tournamentId: result.id, maxPlayers: maxP, format: "1v1" });
+        cb?.({ tournamentId: result.id, maxPlayers: maxP, format: "1v1", scheduledStartAt });
         io.emit("tournament_created", {
           id: result.id, name: data.name, maxPlayers: maxP, format: "1v1",
-          creatorName: user.userName, currentPlayers: 1,
+          creatorName: user.userName, currentPlayers: 1, prize: data.prize || null, scheduledStartAt,
         });
 
         // Registration timeout: cancel tournament if it never fills up
@@ -1188,19 +1193,44 @@ export function initSocketServer(httpServer: HttpServer): Server {
           maxPlayers: tournament.maxPlayers,
         });
 
-        // Auto-start if full
+        // Quando a chave completa, o organizador confirma manualmente o sorteio.
         if (updatedPlayers.length >= tournament.maxPlayers) {
-          // Cancel registration timeout since tournament is starting
-          const regTimer = tournamentRegisterTimers.get(data.tournamentId);
-          if (regTimer) {
-            clearTimeout(regTimer);
-            tournamentRegisterTimers.delete(data.tournamentId);
-          }
-          await startOnlineTournament(io, data.tournamentId);
+          io.to(`tournament_${data.tournamentId}`).emit("tournament_ready_to_start", {
+            tournamentId: data.tournamentId,
+            creatorId: tournament.creatorId,
+            currentPlayers: updatedPlayers.length,
+          });
         }
 
         cb?.({ ok: true, currentPlayers: updatedPlayers.length });
       } catch (e: any) { cb?.({ error: e.message }); }
+    });
+
+    socket.on("start_tournament", async (data: { tournamentId: number }, cb) => {
+      const user = socketToUser.get(socket.id);
+      if (!user) return cb?.({ error: "Not authenticated" });
+      try {
+        const d = await db();
+        const [tournament] = await d.select().from(onlineTournaments)
+          .where(eq(onlineTournaments.id, data.tournamentId));
+        if (!tournament) return cb?.({ error: "Torneio não encontrado" });
+        if (tournament.creatorId !== user.userId) return cb?.({ error: "Somente o organizador pode iniciar a chave" });
+        if (tournament.status !== "registering") return cb?.({ error: "Torneio já foi iniciado" });
+        const players = await d.select({ id: onlineTournamentPlayers.id }).from(onlineTournamentPlayers)
+          .where(eq(onlineTournamentPlayers.tournamentId, data.tournamentId));
+        if (players.length !== tournament.maxPlayers) {
+          return cb?.({ error: `Aguardando ${tournament.maxPlayers - players.length} inscrição(ões) para completar a chave` });
+        }
+        const regTimer = tournamentRegisterTimers.get(data.tournamentId);
+        if (regTimer) {
+          clearTimeout(regTimer);
+          tournamentRegisterTimers.delete(data.tournamentId);
+        }
+        await startOnlineTournament(io, data.tournamentId);
+        cb?.({ ok: true });
+      } catch (error: any) {
+        cb?.({ error: error?.message || "Não foi possível iniciar o torneio" });
+      }
     });
 
     // ── Tournament: recover a ready private match from persistent storage ──

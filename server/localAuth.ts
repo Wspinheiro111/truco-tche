@@ -429,9 +429,10 @@ export const localAuthRouter = router({
 
   /** Perfil completo com indicadores persistidos e linha do tempo de partidas. */
   profileDashboard: protectedProcedure.query(async ({ ctx }) => {
-    const [localMatches, onlineMatches] = await Promise.all([
+    const [localMatches, onlineMatches, championTournaments] = await Promise.all([
       db.getMatchHistory(ctx.user.id, 'all'),
       db.getOnlineMatchHistory(ctx.user.id, 100),
+      db.getChampionTournamentHistory(ctx.user.id),
     ]);
     const dashboard = buildProfileDashboard(ctx.user.id, localMatches, onlineMatches);
     return {
@@ -444,6 +445,7 @@ export const localAuthRouter = router({
         createdAt: ctx.user.createdAt,
       },
       ...dashboard,
+      championTournaments,
     };
   }),
 
