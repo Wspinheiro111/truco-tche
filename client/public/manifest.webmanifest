@@ -1,0 +1,18 @@
+{
+  "name": "Truco Tchê",
+  "short_name": "Truco Tchê",
+  "description": "Truco gaúcho on-line, desafios e torneios mano a mano.",
+  "id": "/",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#123919",
+  "theme_color": "#b8860b",
+  "icons": [
+    {
+      "src": "/manus-storage/truco-tche-pwa-icon_ae86865a.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

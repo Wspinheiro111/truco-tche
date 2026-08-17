@@ -16,7 +16,17 @@
 window._sioFn = (typeof io === 'function') ? io : null;
 window._sioClientReady = !!window._sioFn;
 </script>
-<link rel="manifest" href="data:application/json,%7B%22name%22%3A%22Truco%20Tch%C3%AA%22%2C%22short_name%22%3A%22Truco%20Tch%C3%AA%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23f5f1ea%22%2C%22theme_color%22%3A%22%23b8860b%22%2C%22start_url%22%3A%22%2F%22%7D">
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function(error) {
+      console.warn('[PWA] Service worker não pôde ser registrado:', error);
+    });
+  });
+}
+</script>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/manus-storage/truco-tche-pwa-icon_ae86865a.png">
 <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -2487,6 +2497,13 @@ body, .scr {
   </div>
   <!-- Painel Online 1×1 -->
   <div id="tourney-panel-online" style="flex:1;overflow-y:auto;display:none;padding:.75rem">
+    <div id="ot-push-reminders" role="status" style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;background:linear-gradient(135deg,rgba(36,106,69,.16),rgba(14,42,29,.22));border:1px solid rgba(100,205,137,.32);border-radius:12px;padding:.72rem .78rem;margin-bottom:.8rem">
+      <div style="min-width:0">
+        <div style="font-size:.76rem;font-weight:800;color:#77d897">🔔 Lembretes de campeonato</div>
+        <div id="ot-push-reminder-detail" style="font-size:.61rem;color:var(--txt2);line-height:1.35;margin-top:.14rem">Receba avisos neste dispositivo antes do horário previsto dos campeonatos em que estiver inscrito.</div>
+      </div>
+      <button id="ot-push-reminder-button" type="button" onclick="toggleTournamentReminders()" style="flex-shrink:0;background:transparent;border:1px solid rgba(119,216,151,.6);color:#77d897;padding:.38rem .6rem;border-radius:var(--r);font-size:.62rem;font-weight:800;cursor:pointer">Ativar</button>
+    </div>
     <div style="background:linear-gradient(135deg,rgba(200,168,75,.16),rgba(42,25,0,.28));border:1px solid rgba(200,168,75,.34);border-radius:12px;padding:.85rem;margin-bottom:.8rem">
       <div style="font-size:1rem;font-weight:800;color:var(--tg-gold,#e8c45d)">🏆 Campeonato Mano a Mano</div>
       <div style="font-size:.7rem;color:var(--txt2);margin-top:.24rem;line-height:1.35">Inscrição individual · sorteio auditável · confrontos 1×1. Escolha uma quantidade par de 2 a 64 jogadores.</div>
@@ -8851,6 +8868,100 @@ function createOnlineOneVsOneTournament() {
   });
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from(rawData, char => char.charCodeAt(0));
+}
+
+function setTournamentReminderControl(state, detail) {
+  const button = document.getElementById('ot-push-reminder-button');
+  const detailEl = document.getElementById('ot-push-reminder-detail');
+  if (!button || !detailEl) return;
+  detailEl.textContent = detail;
+  if (state === 'enabled') {
+    button.textContent = 'Desativar';
+    button.style.borderColor = 'rgba(255,156,145,.55)';
+    button.style.color = '#ff9c91';
+  } else if (state === 'unsupported') {
+    button.textContent = 'Indisponível';
+    button.disabled = true;
+    button.style.opacity = '.6';
+    button.style.cursor = 'not-allowed';
+  } else {
+    button.textContent = 'Ativar';
+    button.disabled = false;
+    button.style.borderColor = 'rgba(119,216,151,.6)';
+    button.style.color = '#77d897';
+    button.style.opacity = '1';
+    button.style.cursor = 'pointer';
+  }
+}
+
+async function refreshTournamentReminderControl() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    setTournamentReminderControl('unsupported', 'Este navegador não oferece lembretes push. Use um navegador atualizado no celular.');
+    return;
+  }
+  try {
+    const status = await trpcQuery('push.status');
+    if (status?.enabled) {
+      setTournamentReminderControl('enabled', `Lembretes ativos neste dispositivo${status.deviceCount > 1 ? ` · ${status.deviceCount} dispositivos autorizados` : ''}.`);
+    } else {
+      setTournamentReminderControl('disabled', 'Receba avisos neste dispositivo antes do horário previsto dos campeonatos em que estiver inscrito.');
+    }
+  } catch {
+    setTournamentReminderControl('disabled', 'Entre na tua conta para ativar lembretes de campeonatos neste dispositivo.');
+  }
+}
+
+async function toggleTournamentReminders() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    toast('Este navegador não permite lembretes push.', 'warn');
+    return;
+  }
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const currentSubscription = await registration.pushManager.getSubscription();
+    const currentStatus = await trpcQuery('push.status');
+    if (currentSubscription && currentStatus?.enabled) {
+      await trpcMutation('push.unsubscribe', { endpoint: currentSubscription.endpoint });
+      await currentSubscription.unsubscribe();
+      setTournamentReminderControl('disabled', 'Lembretes desativados neste dispositivo. Você pode autorizar novamente quando quiser.');
+      toast('Lembretes desativados neste dispositivo.', 'info');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      setTournamentReminderControl('disabled', 'A permissão foi recusada. Você pode liberar as notificações nas configurações do navegador.');
+      toast('Permissão de notificações não concedida.', 'warn');
+      return;
+    }
+    const configResponse = await fetch('/api/push/config', { credentials: 'include' });
+    if (!configResponse.ok) throw new Error('Configuração de notificações indisponível');
+    const { vapidPublicKey } = await configResponse.json();
+    const subscription = currentSubscription || await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+    });
+    const keys = subscription.toJSON().keys || {};
+    if (!keys.p256dh || !keys.auth) throw new Error('Assinatura de notificações incompleta');
+    await trpcMutation('push.subscribe', {
+      endpoint: subscription.endpoint,
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      userAgent: navigator.userAgent,
+    });
+    setTournamentReminderControl('enabled', 'Lembretes ativos neste dispositivo para campeonatos em que você estiver inscrito.');
+    toast('🔔 Lembretes ativados neste dispositivo!', 'win');
+  } catch (error) {
+    console.warn('[PWA] Não foi possível atualizar lembretes:', error);
+    toast('Não foi possível atualizar os lembretes. Tente novamente.', 'warn');
+  }
+}
+
 function filterTournaments(filter, btn) {
   _tournamentFilter = filter;
   document.querySelectorAll('#tf-all,#tf-registering,#tf-active').forEach(b => {
@@ -8899,6 +9010,7 @@ function loadOnlineTournaments() {
     if (res.error) return;
     _tournamentsData = res.tournaments || [];
     renderTournamentsList(_tournamentsData);
+    refreshTournamentReminderControl();
   });
 }
 

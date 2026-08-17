@@ -175,3 +175,11 @@
 - [x] Permitir revisar e alterar nome, prêmio, vagas e horário de referência dentro da pré-visualização.
 - [x] Criar a nova edição somente após confirmação explícita ou descartar as alterações ao cancelar.
 - [x] Cobrir pré-visualização, confirmação e descarte com testes e validação da interface.
+- [x] Avaliar suporte PWA, consentimento e canal de push compatível com o Truco Tchê atual.
+- [x] Criar manifest e service worker para tornar o Truco Tchê instalável como PWA.
+- [x] Configurar credenciais VAPID para Web Push e armazenar assinaturas de notificações por jogador.
+- [x] Permitir que jogadores inscritos autorizem ou recusem lembretes de torneio no dispositivo.
+- [ ] Agendar lembretes automáticos antes do horário de referência do torneio para jogadores inscritos.
+- [ ] Testar inscrição, recusa, agendamento e entrega de lembretes sem duplicações.
+- [ ] Criar registros idempotentes de envio para cada lembrete de torneio e janela de aviso.
+- [ ] Excluir assinaturas expiradas ou rejeitadas pelo serviço Web Push sem afetar outros dispositivos do jogador.

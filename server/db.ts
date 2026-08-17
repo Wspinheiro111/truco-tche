@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, gt, gte, or, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, asc, desc, eq, gt, gte, isNotNull, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame } from "../drizzle/schema";
+import { InsertUser, users, matches, InsertMatch, pinResetTokens, onlineMatches, onlineRooms, onlineTournaments, onlineTournamentPlayers, sponsors, InsertSponsor, sponsorEvents, pilasBalance, pilasTransactions, pilasPackages, pixPayments, InsertPilasTransaction, userPurchases, activeOnlineGames, InsertActiveOnlineGame, pushSubscriptions, tournamentPushDeliveries, scheduledJobs } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 import mysql from 'mysql2/promise';
@@ -43,20 +44,6 @@ function createPool(): mysql.Pool {
 
   return pool;
 }
-
-// Periodic health check — runs every 30s, not per-query
-setInterval(async () => {
-  if (!_pool) return;
-  try {
-    const conn = await _pool.getConnection();
-    await conn.ping();
-    conn.release();
-  } catch (err: any) {
-    console.warn('[Database] Health check failed, resetting pool...', err.message);
-    _pool = null;
-    _db = null;
-  }
-}, 30_000);
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
@@ -214,6 +201,139 @@ export async function getUserById(id: number) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+// ─── Assinaturas Web Push ─────────────────────────────────────────────────────
+
+export type PushSubscriptionInput = {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string | null;
+};
+
+/** Mantém o endpoint fora de índices e logs; somente seu SHA-256 o identifica. */
+export function hashPushEndpoint(endpoint: string): string {
+  return createHash("sha256").update(endpoint).digest("hex");
+}
+
+export async function upsertPushSubscription(userId: number, input: PushSubscriptionInput) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const endpointHash = hashPushEndpoint(input.endpoint);
+  await db.insert(pushSubscriptions).values({
+    userId,
+    endpoint: input.endpoint,
+    endpointHash,
+    p256dh: input.p256dh,
+    auth: input.auth,
+    userAgent: input.userAgent ?? null,
+  }).onDuplicateKeyUpdate({
+    set: {
+      userId,
+      endpoint: input.endpoint,
+      p256dh: input.p256dh,
+      auth: input.auth,
+      userAgent: input.userAgent ?? null,
+      updatedAt: new Date(),
+    },
+  });
+  const [subscription] = await db.select().from(pushSubscriptions)
+    .where(eq(pushSubscriptions.endpointHash, endpointHash))
+    .limit(1);
+  return subscription;
+}
+
+export async function removePushSubscription(userId: number, endpoint: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.delete(pushSubscriptions)
+    .where(and(
+      eq(pushSubscriptions.userId, userId),
+      eq(pushSubscriptions.endpointHash, hashPushEndpoint(endpoint)),
+    ));
+  return result.affectedRows > 0;
+}
+
+export async function listPushSubscriptionsForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId));
+}
+
+export type TournamentPushTarget = {
+  tournamentId: number;
+  tournamentName: string;
+  scheduledStartAt: Date;
+  userId: number;
+  subscriptionId: number;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
+
+/** Busca somente inscrições com dispositivo autorizado em uma janela curta de lembretes. */
+export async function listTournamentPushTargets(now: Date, minutesForward = 70): Promise<TournamentPushTarget[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const lowerBound = new Date(now.getTime() - 10 * 60 * 1000);
+  const upperBound = new Date(now.getTime() + minutesForward * 60 * 1000);
+  return db.select({
+    tournamentId: onlineTournaments.id,
+    tournamentName: onlineTournaments.name,
+    scheduledStartAt: onlineTournaments.scheduledStartAt,
+    userId: onlineTournamentPlayers.userId,
+    subscriptionId: pushSubscriptions.id,
+    endpoint: pushSubscriptions.endpoint,
+    p256dh: pushSubscriptions.p256dh,
+    auth: pushSubscriptions.auth,
+  }).from(onlineTournaments)
+    .innerJoin(onlineTournamentPlayers, eq(onlineTournamentPlayers.tournamentId, onlineTournaments.id))
+    .innerJoin(pushSubscriptions, eq(pushSubscriptions.userId, onlineTournamentPlayers.userId))
+    .where(and(
+      eq(onlineTournaments.status, "registering"),
+      isNotNull(onlineTournaments.scheduledStartAt),
+      gt(onlineTournaments.scheduledStartAt, lowerBound),
+      lt(onlineTournaments.scheduledStartAt, upperBound),
+    ))
+    .then(rows => rows.flatMap(row => row.scheduledStartAt ? [{ ...row, scheduledStartAt: row.scheduledStartAt }] : []));
+}
+
+/** Reserva uma entrega antes do envio para impedir duplicação entre retries ou instâncias. */
+export async function claimTournamentPushDelivery(input: {
+  tournamentId: number;
+  userId: number;
+  subscriptionId: number;
+  reminderKind: "one_hour" | "fifteen_minutes";
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.insert(tournamentPushDeliveries).values(input)
+    .onDuplicateKeyUpdate({ set: { id: sql`${tournamentPushDeliveries.id}` } });
+  return result.affectedRows === 1;
+}
+
+export async function removePushSubscriptionById(subscriptionId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, subscriptionId));
+}
+
+export async function recordScheduledJob(name: string, taskUid: string, cronExpression: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(scheduledJobs).values({ name, taskUid, cronExpression })
+    .onDuplicateKeyUpdate({ set: { taskUid, cronExpression, updatedAt: new Date() } });
+}
+
+export async function isScheduledJobTask(name: string, taskUid: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [job] = await db.select({ id: scheduledJobs.id }).from(scheduledJobs)
+    .where(and(eq(scheduledJobs.name, name), eq(scheduledJobs.taskUid, taskUid)))
+    .limit(1);
+  return Boolean(job);
 }
 
 export async function createLocalUser(data: {

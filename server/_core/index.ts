@@ -11,6 +11,8 @@ import { initSocketServer } from "../socketServer";
 import { verifyMercadoPagoWebhookSignature } from "../mercadopago";
 import { registerStorageProxy } from "./storageProxy";
 import { registerPublicTournamentRoutes } from "../publicTournament";
+import { pushConfigHandler } from "../pushConfig";
+import { tournamentRemindersHandler } from "../tournamentReminders";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,6 +41,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerPublicTournamentRoutes(app);
+  app.get("/api/push/config", pushConfigHandler);
+  app.post("/api/scheduled/tournament-reminders", tournamentRemindersHandler);
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // tRPC API

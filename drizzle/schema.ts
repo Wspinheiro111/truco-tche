@@ -374,6 +374,59 @@ export const onlineTournamentPlayers = mysqlTable("onlineTournamentPlayers", {
 export type OnlineTournamentPlayer = typeof onlineTournamentPlayers.$inferSelect;
 export type InsertOnlineTournamentPlayer = typeof onlineTournamentPlayers.$inferInsert;
 
+// ─── Web Push de torneios ─────────────────────────────────────────────────────
+
+/** Dispositivo que um jogador autorizou a receber notificações Web Push. */
+export const pushSubscriptions = mysqlTable("pushSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** URL provida pelo navegador; nunca é enviada a outros jogadores. */
+  endpoint: text("endpoint").notNull(),
+  /** SHA-256 do endpoint, usado para índice único sem truncar o URL. */
+  endpointHash: varchar("endpointHash", { length: 64 }).notNull(),
+  p256dh: varchar("p256dh", { length: 512 }).notNull(),
+  auth: varchar("auth", { length: 512 }).notNull(),
+  userAgent: varchar("userAgent", { length: 512 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  userIdx: index("push_subscription_user_idx").on(table.userId),
+  endpointUnique: uniqueIndex("push_subscription_endpoint_unique_idx").on(table.endpointHash),
+}));
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
+/** Recibo por dispositivo que torna a entrega de cada janela de aviso idempotente. */
+export const tournamentPushDeliveries = mysqlTable("tournamentPushDeliveries", {
+  id: int("id").autoincrement().primaryKey(),
+  tournamentId: int("tournamentId").notNull().references(() => onlineTournaments.id, { onDelete: "cascade" }),
+  userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  subscriptionId: int("subscriptionId").notNull().references(() => pushSubscriptions.id, { onDelete: "cascade" }),
+  reminderKind: mysqlEnum("reminderKind", ["one_hour", "fifteen_minutes"]).notNull(),
+  deliveredAt: timestamp("deliveredAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  tournamentUserIdx: index("tpd_tournament_user_idx").on(table.tournamentId, table.userId),
+  subscriptionUnique: uniqueIndex("tpd_subscription_reminder_unique_idx").on(table.tournamentId, table.subscriptionId, table.reminderKind),
+}));
+
+export type TournamentPushDelivery = typeof tournamentPushDeliveries.$inferSelect;
+
+/** Tarefas periódicas de nível do projeto, vinculadas ao task UID emitido pela plataforma. */
+export const scheduledJobs = mysqlTable("scheduledJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 80 }).notNull(),
+  taskUid: varchar("taskUid", { length: 65 }).notNull(),
+  cronExpression: varchar("cronExpression", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  nameUnique: uniqueIndex("scheduled_job_name_unique_idx").on(table.name),
+  taskUidUnique: uniqueIndex("scheduled_job_task_uid_unique_idx").on(table.taskUid),
+}));
+
+export type ScheduledJob = typeof scheduledJobs.$inferSelect;
+
 // ─── Auditoria de autoverificações de regras ──────────────────────────────────
 
 /**

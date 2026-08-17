@@ -72,4 +72,12 @@ describe("online tournament 1×1 client contract", () => {
     expect(clientSource).toContain('id="td-schedule"');
     expect(clientSource).toContain("Confirmar nova edição");
   });
+
+  it("offers device-level consent and revocation for tournament reminders", () => {
+    expect(clientSource).toContain('id="ot-push-reminders"');
+    expect(clientSource).toContain("toggleTournamentReminders");
+    expect(clientSource).toContain("Notification.requestPermission()");
+    expect(clientSource).toContain("push.subscribe");
+    expect(clientSource).toContain("push.unsubscribe");
+  });
 });
