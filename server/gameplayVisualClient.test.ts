@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const html = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+const legacyMarkupModule = readFileSync(resolve(process.cwd(), "client/src/game/legacyMarkup.ts"), "utf8");
+const legacyMarkup = JSON.parse(legacyMarkupModule.replace(/^export const legacyMarkup = /, "").trim().replace(/;$/, "")) as string;
+const html = [
+  readFileSync(resolve(process.cwd(), "client/src/game/game.css"), "utf8"),
+  legacyMarkup,
+  readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8"),
+].join("\n");
 
 describe("gameplay visual contract", () => {
   it("keeps the full player hand responsive without clipping card containers", () => {

@@ -51,7 +51,7 @@ describe("getWaitingRoomSummaries", () => {
 
   it("usa invalidação em vez de transferir o Map local como lista global de salas", () => {
     const server = readFileSync(resolve(process.cwd(), "server/socketServer.ts"), "utf8");
-    const client = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+    const client = readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8");
 
     expect(server).toContain('io.emit("rooms_invalidated", { at: Date.now() })');
     expect(server).not.toContain('io.emit("rooms_updated", { rooms: getWaitingRoomSummaries(rooms.values()) })');
@@ -99,7 +99,7 @@ describe("getWaitingRoomSummaries", () => {
     // O comportamento antigo era renderizar diretamente esse payload vazio.
     expect(payloadFromInstanceBWithoutTheRoom).not.toEqual(visibleBeforeLegacyEvent);
 
-    const client = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+    const client = readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8");
     expect(client).not.toContain("renderActiveRooms(data?.rooms || [])");
     expect(client).toContain("sio.on('rooms_invalidated', refreshRoomsAfterInvalidation)");
   });

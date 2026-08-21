@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 describe("multiplayer recovery client contract", () => {
   it("executa a restauração dos modais de Truco, Envido e Flor", () => {
-    const client = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+    const client = readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8");
     const start = client.indexOf("function restorePendingOnlineNegotiation(state)");
     const end = client.indexOf("// ── Socket.io Connection", start);
     expect(start).toBeGreaterThan(-1);

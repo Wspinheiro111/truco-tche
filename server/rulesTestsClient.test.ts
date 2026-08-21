@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
-const html = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+const html = readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8");
+const markup = readFileSync(resolve(process.cwd(), "client/src/game/legacyMarkup.ts"), "utf8");
 const loaderSource = html.match(/async function loadRulesTestReport\(\) \{[\s\S]*?window\.loadRulesTestReport = loadRulesTestReport;/);
 if (!loaderSource) throw new Error("Carregador do relatório de regras não encontrado");
 
@@ -93,7 +94,7 @@ describe("rules test page loader", () => {
   });
 
   it("keeps the administrative screen in the document", () => {
-    expect(html).toContain('id="rules-tests-scr"');
+    expect(markup).toContain("rules-tests-scr");
     expect(html).toContain("window.loadRulesTestReport = loadRulesTestReport");
   });
 });

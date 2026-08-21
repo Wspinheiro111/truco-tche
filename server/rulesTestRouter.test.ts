@@ -11,7 +11,10 @@ describe("rules test report", () => {
   });
 
   it("keeps the administrative report and its loading screen wired in the client", () => {
-    const client = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+    const client = [
+      readFileSync(resolve(process.cwd(), "client/src/game/legacyMarkup.ts"), "utf8"),
+      readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8"),
+    ].join("\n");
     expect(client).toContain("rules-tests-scr");
     expect(client).toContain("loadRulesTestReport");
     expect(client).toContain("window.loadRulesTestReport = loadRulesTestReport");

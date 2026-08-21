@@ -42,7 +42,10 @@ describe('profile dashboard', () => {
   });
 
   it('keeps loading, empty and retryable error states in the profile interface', () => {
-    const page = readFileSync(resolve(process.cwd(), 'client/index.html'), 'utf8');
+    const page = [
+      readFileSync(resolve(process.cwd(), 'client/src/game/legacyMarkup.ts'), 'utf8'),
+      readFileSync(resolve(process.cwd(), 'client/public/game-runtime.js'), 'utf8'),
+    ].join('\n');
     expect(page).toContain('Carregando seu desempenho...');
     expect(page).toContain('Ainda não há partidas registradas');
     expect(page).toContain('Não foi possível carregar o perfil');

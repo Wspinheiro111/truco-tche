@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import vm from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 
-const html = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+const html = readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8");
 const handlerStart = html.indexOf("function refreshRoomsAfterInvalidation()");
 const handlerEnd = html.indexOf("sio.on('rooms_invalidated'", handlerStart);
 if (handlerStart < 0 || handlerEnd < 0) throw new Error("Handler de invalidação de salas não encontrado");

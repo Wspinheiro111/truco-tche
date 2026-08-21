@@ -196,3 +196,12 @@
 - [x] Atribuir participantes que entram pelo QR Code às equipes e iniciar somente quando todos os assentos forem ocupados.
 - [x] Atualizar a mesa, o placar e as ações para representar equipes em duplas e trios.
 - [x] Cobrir criação, entrada, equipes, início e limpeza automática em todos os três modos presenciais.
+- [x] Consolidar os arquivos de código e configuração relevantes em um TXT para download.
+- [x] Inventariar o script legado e extrair os módulos auth, socket, cards, sponsors, screens e trpcClient.
+- [x] Mover o CSS inline do jogo para client/src/game/game.css e reduzir o index.html ao bootstrap Vite.
+- [x] Renderizar o jogo real pela aplicação React sem perder variáveis globais e contratos Socket.IO.
+- [x] Substituir as cartas Base64 por manifesto de URLs gerenciadas com cache local e carregamento sob demanda.
+- [x] Limpar ou isolar dependências de QR Code não essenciais ao fluxo de Mesa Presencial.
+- [x] Validar cliente modular com testes, smoke de duas sessões e build.
+- [ ] Criar testes de cliente para o adaptador de gameEngine e para o carregamento preguiçoso das cartas.
+- [ ] Endurecer o middleware de autenticação Socket.IO com testes de rejeição de identidade forjada e escopo de sala.

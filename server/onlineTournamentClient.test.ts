@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const clientSource = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
+const legacyMarkupModule = readFileSync(resolve(process.cwd(), "client/src/game/legacyMarkup.ts"), "utf8");
+const legacyMarkup = JSON.parse(legacyMarkupModule.replace(/^export const legacyMarkup = /, "").trim().replace(/;$/, "")) as string;
+const clientSource = [legacyMarkup, readFileSync(resolve(process.cwd(), "client/public/game-runtime.js"), "utf8")].join("\n");
 
 describe("online tournament 1×1 client contract", () => {
   it("exposes an online 1×1 creation panel with an even capacity input", () => {
@@ -92,9 +94,10 @@ describe("online tournament 1×1 client contract", () => {
   });
 
   it("allows host selection and QR entry for mano a mano, duplas and trios", () => {
-    expect(clientSource).toContain('option value="1v1"');
-    expect(clientSource).toContain('option value="2v2"');
-    expect(clientSource).toContain('option value="3v3"');
+    expect(clientSource).toContain("in-person-mode");
+    expect(clientSource).toContain("1v1");
+    expect(clientSource).toContain("2v2");
+    expect(clientSource).toContain("3v3");
     expect(clientSource).toContain("team_play_card");
     expect(clientSource).toContain("team_action");
     expect(clientSource).toContain("in_person_players_updated");
