@@ -203,5 +203,5 @@
 - [x] Substituir as cartas Base64 por manifesto de URLs gerenciadas com cache local e carregamento sob demanda.
 - [x] Limpar ou isolar dependências de QR Code não essenciais ao fluxo de Mesa Presencial.
 - [x] Validar cliente modular com testes, smoke de duas sessões e build.
-- [ ] Criar testes de cliente para o adaptador de gameEngine e para o carregamento preguiçoso das cartas.
-- [ ] Endurecer o middleware de autenticação Socket.IO com testes de rejeição de identidade forjada e escopo de sala.
+- [x] Criar testes de cliente para o adaptador de gameEngine e para o carregamento preguiçoso das cartas.
+- [x] Endurecer o middleware de autenticação Socket.IO com testes de rejeição de identidade forjada e escopo de sala.

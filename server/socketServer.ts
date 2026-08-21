@@ -19,6 +19,7 @@ import { sdk } from "./_core/sdk";
 import { getSessionCookieFromHeader } from "./_core/cookies";
 import { buildOneVsOneOpeningRound, OnlineTournamentMatch, roundCountForCapacity, validateOneVsOneCapacity } from "./onlineTournamentRules";
 import { createChampionCertificate } from "./tournamentCertificate";
+import { canUseRoomScope, isLoopbackSocketAddress, parseLocalSocketAuthPayload } from "./socketSecurity";
 
 // Lazy DB helper
 async function db() {
@@ -376,7 +377,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
           if (dbUser) {
             // Use the DB-verified userId and name — ignore what the client sent
-            socketToUser.set(socket.id, { userId: dbUser.id, userName: dbUser.name || data.userName });
+            socketToUser.set(socket.id, { userId: dbUser.id, userName: dbUser.name || "Jogador" });
             if (dbUser.role === 'admin') socket.join('admins');
             broadcastOnlineStats();
             cb?.({ success: true });
@@ -388,14 +389,27 @@ export function initSocketServer(httpServer: HttpServer): Server {
           cb?.({ success: false, error: 'User session is not synchronized' });
           return;
         }
-        // No cookie is accepted only when explicitly running local development.
-        if (process.env.NODE_ENV !== 'development') {
+        // Sem cookie, somente o desenvolvimento em loopback pode autenticar uma conta local.
+        const localPayload = parseLocalSocketAuthPayload(data);
+        if (process.env.NODE_ENV !== 'development' || !isLoopbackSocketAddress(socket.handshake.address) || !localPayload) {
           console.warn(`[Socket] Auth rejected: missing JWT cookie for socket ${socket.id}`);
           cb?.({ success: false, error: 'Authentication required' });
           return;
         }
-        console.warn(`[Socket] Development auth fallback for socket ${socket.id}, userId: ${data.userId}`);
-        socketToUser.set(socket.id, { userId: data.userId, userName: data.userName });
+        const d = await getDb();
+        const localRows = d ? await d.select({ id: users.id, name: users.name, openId: users.openId })
+          .from(users)
+          .where(eq(users.id, localPayload.userId))
+          .limit(1)
+          .catch(() => []) : [];
+        const localUser = localRows[0];
+        if (!localUser || !localUser.openId.startsWith('local:')) {
+          console.warn(`[Socket] Auth rejected: unknown local user for socket ${socket.id}`);
+          cb?.({ success: false, error: 'Authentication required' });
+          return;
+        }
+        console.warn(`[Socket] Loopback development auth for socket ${socket.id}, userId: ${localUser.id}`);
+        socketToUser.set(socket.id, { userId: localUser.id, userName: localUser.name || "Jogador" });
         broadcastOnlineStats();
         cb?.({ success: true });
       } catch (err) {
@@ -705,6 +719,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!user) return cb?.({ error: "Not authenticated" });
 
       const code = data.code.toUpperCase();
+      if (!canUseRoomScope(userToRoom.get(user.userId), code)) return cb?.({ error: "Você já está vinculado a outra mesa" });
       const teamInvite = typeof data.inPersonToken === "string" && data.inPersonToken.length >= 20
         ? await validateInPersonTableInvite(code, data.inPersonToken, user.userId)
         : null;
