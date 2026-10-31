@@ -288,9 +288,9 @@ export function createGameState(seed?: number, target?: number): GameState {
 }
 
 // ── Deal a New Hand ──
-export function dealHand(state: GameState): GameState {
+export function dealHand(state: GameState, shuffledDeck?: Card[]): GameState {
   const handSeed = state.seed + state.score.p1 * 37 + state.score.p2 * 73 + state.roundWins.length;
-  const deck = makeDeckSeeded(handSeed);
+  const deck = shuffledDeck ? [...shuffledDeck] : makeDeckSeeded(handSeed);
   const p1Hand = deck.splice(0, 3);
   const p2Hand = deck.splice(0, 3);
   const vira = deck.splice(0, 1)[0] ?? null; // carta virada para manilha
@@ -799,16 +799,16 @@ export function getPlayerView(state: GameState, player: Player): Partial<GameSta
     envidoCaller: state.envidoCaller,
     envidoResolved: state.envidoResolved,
     envidoPoints: state.envidoResolved ? state.envidoPoints : { p1: 0, p2: 0 },
-    hasFlor: state.hasFlor,
+    hasFlor: { ...state.hasFlor, [other]: false },
     florChain: state.florChain,
     florBet: state.florBet,
     florCaller: state.florCaller,
     trucoPendingEnvido: state.trucoPendingEnvido,
     playedFirst: state.playedFirst,
     winner: state.winner,
-    seed: state.seed,
     vira: state.vira,
     turnStartedAt: state.turnStartedAt,
     turnTimeoutMs: state.turnTimeoutMs,
   };
 }
+

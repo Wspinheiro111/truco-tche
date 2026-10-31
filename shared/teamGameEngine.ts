@@ -122,8 +122,8 @@ export function createTeamGameState(mode: TeamMode, seed = Date.now()): TeamGame
   };
 }
 
-export function dealTeamHand(state: TeamGameState): TeamGameState {
-  const deck = makeDeckSeeded(state.seed + state.score.A * 37 + state.score.B * 73 + state.roundWins.length);
+export function dealTeamHand(state: TeamGameState, shuffledDeck?: Card[]): TeamGameState {
+  const deck = shuffledDeck ? [...shuffledDeck] : makeDeckSeeded(state.seed + state.score.A * 37 + state.score.B * 73 + state.roundWins.length);
   const hands = emptyRecord<Card[]>(state.playerOrder, []);
   const envidoPoints = emptyRecord(state.playerOrder, 0);
   const hasFlor = emptyRecord(state.playerOrder, false);
@@ -274,7 +274,10 @@ export function refuseTeamFlor(state: TeamGameState, responder: TeamPlayer) {
 export function getTeamPlayerView(state: TeamGameState, player: TeamPlayer) {
   const hands = Object.fromEntries(state.playerOrder.map(slot => [slot, slot === player ? state.hands[slot] : []]));
   const cardCounts = Object.fromEntries(state.playerOrder.map(slot => [slot, state.hands[slot].length]));
-  return { ...state, hands, cardCounts, myHand: state.hands[player], team: state.teams[player] };
+  const { seed: _seed, ...publicState } = state;
+  const envidoPoints = state.envidoResolved ? state.envidoPoints : Object.fromEntries(state.playerOrder.map(slot => [slot, slot === player ? state.envidoPoints[slot] : 0]));
+  const hasFlor = Object.fromEntries(state.playerOrder.map(slot => [slot, state.teams[slot] === state.teams[player] ? state.hasFlor[slot] : false]));
+  return { ...publicState, hands, cardCounts, envidoPoints, hasFlor, myHand: state.hands[player], team: state.teams[player] };
 }
 
 export function canTeamPlayerAct(state: TeamGameState, player: TeamPlayer) {
@@ -282,3 +285,4 @@ export function canTeamPlayerAct(state: TeamGameState, player: TeamPlayer) {
   const caller = state.trucoCaller ?? state.envidoCaller ?? state.florCaller;
   return Boolean(caller && state.teams[caller] !== state.teams[player]);
 }
+

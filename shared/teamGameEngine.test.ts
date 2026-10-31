@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { acceptTeamEnvido, callTeamEnvido, callTeamTruco, createTeamGameState, dealTeamHand, getTeamModeConfig, playTeamCard, teamForSeat } from "./teamGameEngine";
+import { acceptTeamEnvido, callTeamEnvido, callTeamTruco, createTeamGameState, dealTeamHand, getTeamModeConfig, getTeamPlayerView, playTeamCard, teamForSeat } from "./teamGameEngine";
 
 describe("team game engine", () => {
+  it("does not reveal the seed, other hands or opponents' hidden envido and flor", () => {
+    const state = dealTeamHand(createTeamGameState("2v2", 42));
+    state.envidoPoints.p2 = 33;
+    state.hasFlor.p2 = true;
+    const view = getTeamPlayerView(state, "p1");
+    expect(view).not.toHaveProperty("seed");
+    expect(view.hands.p2).toEqual([]);
+    expect(view.envidoPoints.p2).toBe(0);
+    expect(view.hasFlor.p2).toBe(false);
+  });
   it("creates alternating team seats and deals three unique cards to each player", () => {
     const state = dealTeamHand(createTeamGameState("2v2", 42));
     expect(state.playerOrder).toEqual(["p1", "p2", "p3", "p4"]);
@@ -39,3 +49,4 @@ describe("team game engine", () => {
     expect(["A", "B"]).toContain(accepted.envidoWinner);
   });
 });
+

@@ -2,10 +2,18 @@ import { describe, it, expect } from "vitest";
 import {
   createGameState, dealHand, playCard, callTruco, acceptTruco,
   refuseTruco, callEnvido, acceptEnvido, refuseEnvido, callFlor, acceptFlor,
-  fold, getPlayerView, TRUCO_POINTS, TURN_TIMEOUT_MS, isTurnExpired,
+  fold, getPlayerView, makeDeck, TRUCO_POINTS, TURN_TIMEOUT_MS, isTurnExpired,
 } from "./gameEngine";
 
 describe("Game Engine", () => {
+  it("does not expose the seed and deals from the supplied deck without modifying it", () => {
+    const deck = makeDeck();
+    const state = dealHand(createGameState(42), deck);
+    expect(state.hands.p1.map(c => c.id)).toEqual(deck.slice(0, 3).map(c => c.id));
+    expect(state.hands.p2.map(c => c.id)).toEqual(deck.slice(3, 6).map(c => c.id));
+    expect(deck).toHaveLength(40);
+    expect(getPlayerView(state, "p1")).not.toHaveProperty("seed");
+  });
   it("creates a valid initial game state", () => {
     const state = createGameState();
     expect(state.phase).toBe("waiting");
@@ -210,3 +218,4 @@ describe("Game Engine", () => {
     expect(accepted.points).toBeGreaterThan(0);
   });
 });
+
