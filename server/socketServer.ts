@@ -6,7 +6,7 @@ import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import { randomInt } from "node:crypto";
 import {
-  createGameState, dealHand, playCard, callTruco, acceptTruco,
+  createGameState, dealHand, makeDeck, playCard, callTruco, acceptTruco,
   refuseTruco, raiseTruco, callEnvido, acceptEnvido, refuseEnvido,
   callFlor, acceptFlor, refuseFlor, fold, getPlayerView,
   GameState, Player, TRUCO_POINTS, TURN_TIMEOUT_MS as ENGINE_TURN_TIMEOUT_MS,
@@ -20,6 +20,15 @@ import { getSessionCookieFromHeader } from "./_core/cookies";
 import { buildOneVsOneOpeningRound, OnlineTournamentMatch, roundCountForCapacity, validateOneVsOneCapacity } from "./onlineTournamentRules";
 import { createChampionCertificate } from "./tournamentCertificate";
 import { canUseRoomScope, isLoopbackSocketAddress, parseLocalSocketAuthPayload } from "./socketSecurity";
+
+function secureDeck() {
+  const deck = makeDeck();
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
 
 // Lazy DB helper
 async function db() {
@@ -990,7 +999,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
     async function dealNextTeamHand(room: TeamRoomData, eventId: string) {
       if (!room.state || room.state.phase === "game_over") return;
-      room.state = dealTeamHand(room.state);
+      room.state = dealTeamHand(room.state, secureDeck());
       await persistTeamRoomState(room, eventId);
       emitTeamGameState(io, room);
     }
@@ -2015,7 +2024,7 @@ async function startGame(io: Server, code: string) {
   // multiple games start simultaneously. crypto.randomInt is Node 14.10+.
   const seed = randomInt(2147483646) + 1; // range [1, 2^31-2]
   let state = createGameState(seed);
-  state = dealHand(state);
+  state = dealHand(state, secureDeck());
   room.state = state;
   room.startTime = Date.now();
 
@@ -2048,7 +2057,6 @@ async function startGame(io: Server, code: string) {
   io.to(code).emit("game_started", {
     names: room.nameMap,
     mode: room.mode,
-    seed,
   });
   // Pequeno delay para garantir que o cliente processou o game_started e
   // mostrou a tela antes de receber o estado do jogo.
@@ -2118,7 +2126,7 @@ async function startTeamGame(io: Server, code: string) {
   const second = room.participants.get("p2");
   if (!first || !second) return;
   const seed = randomInt(2147483646) + 1;
-  room.state = dealTeamHand(createTeamGameState(room.mode, seed));
+  room.state = dealTeamHand(createTeamGameState(room.mode, seed), secureDeck());
   room.startTime = Date.now();
   try {
     const snapshot = await createActiveOnlineGame({
@@ -2142,7 +2150,7 @@ async function startTeamGame(io: Server, code: string) {
     return;
   }
   playersInGame += room.maxPlayers;
-  io.to(code).emit("game_started", { names: teamNames(room), mode: room.mode, seed, teamGame: true, participants: Array.from(room.participants.values()) });
+  io.to(code).emit("game_started", { names: teamNames(room), mode: room.mode, teamGame: true, participants: Array.from(room.participants.values()) });
   setTimeout(() => emitTeamGameState(io, room), 150);
 }
 
@@ -2240,7 +2248,7 @@ async function persistAndEmitGameState(io: Server, room: RoomData, eventId: stri
 
 async function dealNextHand(io: Server, room: RoomData, eventId: string) {
   if (!room.state || room.state.phase === "game_over") return;
-  room.state = dealHand(room.state);
+  room.state = dealHand(room.state, secureDeck());
   await persistAndEmitGameState(io, room, eventId);
 }
 
@@ -2613,3 +2621,4 @@ async function advanceTournamentBracket(io: Server, tournamentId: number, winner
     console.error("[Socket] advanceTournamentBracket error:", e);
   }
 }
+

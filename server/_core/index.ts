@@ -78,8 +78,14 @@ async function startServer() {
 
       const { type, data } = req.body;
       if (type === 'payment' && data?.id) {
-        const { updatePixPaymentStatus } = await import('../db');
-        const credited = await updatePixPaymentStatus(String(data.id), 'approved');
+        if (String(data.id) !== String(dataId)) return res.sendStatus(400);
+        const { updatePixPaymentStatus, getPixPaymentByMpId } = await import('../db');
+        const { getPaymentStatus } = await import('../mercadopago');
+        const payment = await getPixPaymentByMpId(String(dataId));
+        if (!payment) return res.sendStatus(200);
+        const remote = await getPaymentStatus(String(dataId));
+        if (remote.id !== String(dataId) || remote.amountCents !== payment.amountCents) return res.sendStatus(400);
+        const credited = await updatePixPaymentStatus(String(dataId), remote.status);
         if (credited) {
           console.log(`[Webhook] Pilas credited for payment ${data.id}`);
         }
@@ -87,7 +93,7 @@ async function startServer() {
       res.sendStatus(200);
     } catch (error) {
       console.error('[Webhook] Error processing MP notification:', error);
-      res.sendStatus(200); // Always return 200 to MP
+      res.sendStatus(503);
     }
   });
 
@@ -126,3 +132,4 @@ async function startServer() {
 }
 
 startServer().catch(console.error);
+

@@ -1427,35 +1427,23 @@ export async function getPixPaymentByMpId(mpPaymentId: string) {
 export async function updatePixPaymentStatus(mpPaymentId: string, status: string): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-
-  const payment = await getPixPaymentByMpId(mpPaymentId);
-  if (!payment) return false;
-
-  // Update status
-  const newStatus = status === 'approved' ? 'approved' :
-                    status === 'rejected' ? 'rejected' :
-                    status === 'cancelled' ? 'cancelled' :
-                    status === 'refunded' ? 'refunded' : 'pending';
-
-  await db.update(pixPayments)
-    .set({ status: newStatus as any })
-    .where(eq(pixPayments.mpPaymentId, mpPaymentId));
-
-  // Credit pilas if approved and not yet credited
-  if (status === 'approved' && payment.credited === false) {
-    await creditPilas(
-      payment.userId,
-      payment.pilasToCredit,
-      `Compra de ${payment.pilasToCredit} pilas via Pix`,
-      mpPaymentId
-    );
-    await db.update(pixPayments)
-      .set({ credited: true })
-      .where(eq(pixPayments.mpPaymentId, mpPaymentId));
-    return true; // pilas credited
-  }
-
-  return false;
+  return db.transaction(async tx => {
+    const [payment] = await tx.select().from(pixPayments).where(eq(pixPayments.mpPaymentId, mpPaymentId)).limit(1).for('update');
+    if (!payment) return false;
+    const newStatus = status === 'approved' ? 'approved' : status === 'rejected' ? 'rejected' : status === 'cancelled' ? 'cancelled' : status === 'refunded' ? 'refunded' : 'pending';
+    if (payment.credited) {
+      if (newStatus === 'refunded') await tx.update(pixPayments).set({ status: 'refunded' }).where(eq(pixPayments.id, payment.id));
+      return false;
+    }
+    await tx.update(pixPayments).set({ status: newStatus }).where(eq(pixPayments.id, payment.id));
+    if (newStatus !== 'approved') return false;
+    await tx.insert(pilasBalance).values({ userId: payment.userId, balance: 0, totalPurchased: 0, totalSpent: 0 }).onDuplicateKeyUpdate({ set: { userId: payment.userId } });
+    await tx.update(pilasBalance).set({ balance: sql`${pilasBalance.balance} + ${payment.pilasToCredit}`, totalPurchased: sql`${pilasBalance.totalPurchased} + ${payment.pilasToCredit}` }).where(eq(pilasBalance.userId, payment.userId));
+    const [balance] = await tx.select({ balance: pilasBalance.balance }).from(pilasBalance).where(eq(pilasBalance.userId, payment.userId)).limit(1);
+    await tx.insert(pilasTransactions).values({ userId: payment.userId, type: 'purchase', amount: payment.pilasToCredit, description: `Compra de ${payment.pilasToCredit} pilas via Pix`, referenceId: mpPaymentId, balanceAfter: balance.balance });
+    await tx.update(pixPayments).set({ credited: true }).where(eq(pixPayments.id, payment.id));
+    return true;
+  });
 }
 
 /**
@@ -1548,37 +1536,21 @@ export async function userOwnsItem(userId: number, category: string, itemId: str
  * Returns the new pilas balance.
  */
 export async function purchaseShopItem(userId: number, category: string, itemId: string, pricePilas: number): Promise<number> {
-  // Check if already owned
-  const alreadyOwned = await userOwnsItem(userId, category, itemId);
-  if (alreadyOwned) throw new Error('Você já possui este item');
-
-  // Debit pilas (throws if insufficient)
-  const newBalance = await debitPilas(userId, pricePilas, `Compra: ${category}/${itemId}`, `shop:${category}:${itemId}`);
-
-  // Record purchase
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-  // Get the transaction ID from the pilas_transactions table
-  // The debitPilas call above created a transaction with referenceId = `shop:${category}:${itemId}`
-  const txRows = await db.select({ id: pilasTransactions.id })
-    .from(pilasTransactions)
-    .where(and(
-      eq(pilasTransactions.userId, userId),
-      eq(pilasTransactions.referenceId, `shop:${category}:${itemId}`)
-    ))
-    .orderBy(desc(pilasTransactions.createdAt))
-    .limit(1);
-  const txId = txRows.length > 0 ? txRows[0].id : null;
-
-  await db.insert(userPurchases).values({
-    userId,
-    category,
-    itemId,
-    pricePilas,
-    transactionId: txId,
+  if (!Number.isSafeInteger(pricePilas) || pricePilas <= 0) throw new Error('Invalid price');
+  return db.transaction(async tx => {
+    await tx.insert(pilasBalance).values({ userId, balance: 0, totalPurchased: 0, totalSpent: 0 }).onDuplicateKeyUpdate({ set: { userId } });
+    const [account] = await tx.select().from(pilasBalance).where(eq(pilasBalance.userId, userId)).limit(1).for('update');
+    const [owned] = await tx.select({ id: userPurchases.id }).from(userPurchases).where(and(eq(userPurchases.userId, userId), eq(userPurchases.category, category), eq(userPurchases.itemId, itemId))).limit(1);
+    if (owned) throw new Error('Você já possui este item');
+    if (account.balance < pricePilas) throw new Error('Saldo insuficiente');
+    const newBalance = account.balance - pricePilas;
+    await tx.update(pilasBalance).set({ balance: newBalance, totalSpent: sql`${pilasBalance.totalSpent} + ${pricePilas}` }).where(eq(pilasBalance.userId, userId));
+    const [inserted] = await tx.insert(pilasTransactions).values({ userId, type: 'spend', amount: -pricePilas, description: `Compra: ${category}/${itemId}`, referenceId: `shop:${category}:${itemId}`, balanceAfter: newBalance });
+    await tx.insert(userPurchases).values({ userId, category, itemId, pricePilas, transactionId: Number(inserted.insertId) });
+    return newBalance;
   });
-
-  return newBalance;
 }
 
 // ─── Admin Monitoring ─────────────────────────────────────────────────────────
@@ -1968,3 +1940,4 @@ export async function claimFriendGameInvite(receiverId: number, roomCode: string
   );
   return result.affectedRows === 1;
 }
+

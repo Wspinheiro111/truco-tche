@@ -124,5 +124,7 @@ export async function getPaymentStatus(paymentId: string) {
     id: String(result.id),
     status: result.status ?? "pending",
     statusDetail: result.status_detail ?? "",
+    amountCents: typeof result.transaction_amount === "number" ? Math.round(result.transaction_amount * 100) : null,
   };
 }
+

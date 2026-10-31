@@ -21,6 +21,10 @@ import { createPixPayment, getPaymentStatus } from "./mercadopago";
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "crypto";
 
+const PILAS_SHOP_PRICES: Record<string, Record<string, number>> = {
+  skins: { farroupilha: 15, chimarrao: 10, gaucho_real: 25 },
+};
+
 export const pilasRouter = router({
   /**
    * Get the current user's pilas balance.
@@ -123,13 +127,16 @@ export const pilasRouter = router({
       }
 
       // If already approved, return immediately
-      if (payment.status === 'approved') {
+      if (payment.status === 'approved' && payment.credited) {
         return { status: 'approved', credited: true, balance: await getPilasBalance(ctx.user.id) };
       }
 
       // Check with Mercado Pago
       try {
         const mpStatus = await getPaymentStatus(input.paymentId);
+        if (mpStatus.id !== input.paymentId || mpStatus.amountCents !== payment.amountCents) {
+          throw new Error('Pagamento não corresponde ao registro local');
+        }
         const credited = await updatePixPaymentStatus(input.paymentId, mpStatus.status);
 
         return {
@@ -181,14 +188,19 @@ export const pilasRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const price = Object.hasOwn(PILAS_SHOP_PRICES, input.category)
+          && Object.hasOwn(PILAS_SHOP_PRICES[input.category], input.itemId)
+          ? PILAS_SHOP_PRICES[input.category][input.itemId] : undefined;
+        if (price === undefined) throw new TRPCError({ code: 'NOT_FOUND', message: 'Item indisponível' });
         const newBalance = await purchaseShopItem(
           ctx.user.id,
           input.category,
           input.itemId,
-          input.pricePilas,
+          price,
         );
         return { success: true, balance: newBalance };
       } catch (error: any) {
+        if (error instanceof TRPCError) throw error;
         if (error.message.includes('já possui')) {
           throw new TRPCError({ code: 'CONFLICT', message: error.message });
         }
@@ -255,3 +267,4 @@ export const pilasRouter = router({
       return { success: true };
     }),
 });
+
