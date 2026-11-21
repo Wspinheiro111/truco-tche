@@ -37,6 +37,7 @@ var sioGameState = null;
 var sioGameActive = false;
 // ══════════ CARD IMAGES ══════════
 const CARD_IMGS = window.__TRUCO_CARD_IMGS || { Ouros: {}, Bastos: {}, Espadas: {}, Copas: {} };
+const CARD_BACK = '/cartas/verso.jpg';
 const TT_C = CARD_IMGS;
 function cimg(c){ return CARD_IMGS[c.suit]?.[c.rank] || ''; }
 
@@ -4973,7 +4974,9 @@ function tryRejoinGame() {
       setTimeout(() => showConnectionBanner('hidden'), 3000);
       show('online-game');
       scheduleOnlineStateSync();
-    } else if (sioRoom) {
+    } else {
+      recoverWaitingRoom();
+      if (!sioRoom) return;
       // A sala pode estar aguardando início em outra instância. Continue
       // consultando o snapshot até que a partida ativa exista no banco.
       scheduleOnlineStateSync();
@@ -5064,7 +5067,10 @@ function waitForAuth(cb) {
   if (!sio || !sioConnected) ensureSocket();
 }
 function ensureSocket() {
-  if (sio && sioConnected) return sio;
+  if (sio) {
+    if (!sio.connected && !sio.active) sio.connect();
+    return sio;
+  }
   // Usar _sioFn capturado antes do spaceEditor sobrescrever window.io
   var _ioFn = window._sioFn || (typeof io === 'function' && typeof io.Manager !== 'undefined' ? io : null);
   if (!_ioFn) {
@@ -5085,7 +5091,6 @@ function ensureSocket() {
     // Authenticate before requesting a reconnection, so identity is verified server-side.
     _sioDoAuth(function() {
       tryRejoinGame();
-      recoverWaitingRoom();
       // Atualiza o painel inicial pela consulta persistida após toda reconexão.
       refreshHomeActiveRooms();
     });
@@ -5191,10 +5196,7 @@ function ensureSocket() {
     sioRoom = null;
     sessionStorage.removeItem('truco_active_room');
     stopOnlineStateSync();
-    const isMe = data.winner === sioRole;
-    const msg = data.isWalkover
-      ? (isMe ? 'Adversário desconectou. Vitória sua!' : 'Você desconectou. Derrota.')
-      : (isMe ? `Vitória! ${data.score.p1} x ${data.score.p2}` : `Derrota! ${data.score.p1} x ${data.score.p2}`);
+    const isMe = data.winner === (data.teamGame ? sioGameState?.team : sioRole);
     showOnlineGameOver(isMe, data);
   });
 
@@ -7489,12 +7491,13 @@ function closeOnlineModal(id) {
 }
 
 function showOnlineGameOver(isWin, data) {
+  const scores = data.teamGame ? [data.score.A, data.score.B] : [data.score.p1, data.score.p2];
   const html = `
     <div class="modal-overlay" id="m-online-gameover" style="display:flex">
       <div class="modal" style="max-width:380px;text-align:center">
         <div style="font-size:3rem;margin-bottom:.5rem">${isWin ? '🏆' : '😔'}</div>
         <div style="font-size:1.3rem;font-weight:700;margin-bottom:.3rem;color:${isWin ? 'var(--tg-green)' : 'var(--tg-red)'}">${isWin ? 'Vitória!' : 'Derrota'}</div>
-        <div style="font-size:1.5rem;font-weight:900;margin:.5rem 0">${data.score.p1} × ${data.score.p2}</div>
+        <div style="font-size:1.5rem;font-weight:900;margin:.5rem 0">${scores.join(' × ')}</div>
         ${data.isWalkover ? '<div style="font-size:.7rem;color:var(--txt3)">Adversário desconectou (W.O.)</div>' : ''}
         <div style="display:flex;gap:.5rem;justify-content:center;margin-top:1rem">
           <button onclick="closeOnlineModal('m-online-gameover');show('online-lobby')" style="background:var(--tg-gold);color:#000;border:none;padding:.5rem 1.2rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.85rem">Voltar ao Lobby</button>

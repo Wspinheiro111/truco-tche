@@ -1760,22 +1760,9 @@ export function initSocketServer(httpServer: HttpServer): Server {
       if (!room || !room.state) {
         const snapshot = await getActiveOnlineGameForUser(userId);
         if (!snapshot || snapshot.status !== "active") return cb?.({ error: "No active game found" });
-        const snapshotState = JSON.parse(snapshot.stateJson) as { kind?: string };
-        if (snapshotState.kind === "team") {
-          let teamRoom = teamRooms.get(snapshot.roomCode);
-          if (!teamRoom) {
-            teamRoom = await teamRoomFromSnapshot(snapshot) ?? undefined;
-            if (!teamRoom) return cb?.({ error: "Não foi possível recuperar a mesa por equipes" });
-            teamRooms.set(snapshot.roomCode, teamRoom);
-          }
-          const role = Array.from(teamRoom.participants.entries()).find(([, participant]) => participant.userId === userId)?.[0];
-          if (!role || !teamRoom.state || teamRoom.state.phase === "game_over") return cb?.({ error: "Partida por equipes indisponível" });
-          const participant = teamRoom.participants.get(role)!;
-          participant.socketId = socket.id;
-          socketToRoom.set(socket.id, snapshot.roomCode);
-          userToRoom.set(userId, snapshot.roomCode);
-          socket.join(snapshot.roomCode);
-          emitTeamGameState(io, teamRoom);
+        if (JSON.parse(snapshot.stateJson).kind === "team") {
+          const role = await restoreTeamSeat(io, socket, userId, snapshot, "reconnected");
+          if (!role) return cb?.({ error: "Partida por equipes indisponível" });
           return cb?.({ success: true, roomCode: snapshot.roomCode, role, teamGame: true, reconnected: true });
         }
         roomCode = snapshot.roomCode;
@@ -1880,6 +1867,11 @@ export function initSocketServer(httpServer: HttpServer): Server {
 
       const snapshot = await getActiveOnlineGameForUser(user.userId);
       if (!snapshot || snapshot.status !== "active") return cb?.({ error: "No active game found" });
+
+      if (JSON.parse(snapshot.stateJson).kind === "team") {
+        const role = await restoreTeamSeat(io, socket, user.userId, snapshot, "synchronized");
+        return cb?.(role ? { ok: true, version: snapshot.version } : { error: "Partida por equipes indisponível" });
+      }
 
       let room = rooms.get(snapshot.roomCode);
       if (!room) {
@@ -2082,16 +2074,43 @@ async function persistTeamRoomState(room: TeamRoomData, eventId: string): Promis
   return false;
 }
 
-function emitTeamGameState(io: Server, room: TeamRoomData) {
+async function restoreTeamSeat(io: Server, socket: Socket, userId: number,
+  snapshot: NonNullable<Awaited<ReturnType<typeof getActiveOnlineGameByRoom>>>,
+  event: "reconnected" | "synchronized") {
+  let room = teamRooms.get(snapshot.roomCode);
+  if (!room) {
+    const restored = await teamRoomFromSnapshot(snapshot);
+    if (!restored) return null;
+    room = teamRooms.get(snapshot.roomCode) ?? restored;
+    teamRooms.set(room.code, room);
+  }
+  if (snapshot.version > (room.snapshotVersion ?? 0)) {
+    room.state = JSON.parse(snapshot.stateJson) as TeamGameState;
+    room.snapshotVersion = snapshot.version;
+  }
+  const seat = Array.from(room.participants).find(([, participant]) => participant.userId === userId);
+  if (!seat || !room.state || room.state.phase === "game_over" || !socket.connected) return null;
+  const [role, participant] = seat;
+  participant.socketId = socket.id;
+  socketToRoom.set(socket.id, room.code);
+  userToRoom.set(userId, room.code);
+  socket.join(room.code);
+  emitTeamGameState(io, room, { role, event });
+  return role;
+}
+
+function emitTeamGameState(io: Server, room: TeamRoomData,
+  recovery?: { role: TeamPlayer; event: "reconnected" | "synchronized" }) {
   if (!room.state) return;
   const names = teamNames(room);
   const participants = Array.from(room.participants.entries()).map(([role, participant]) => ({ role, userId: participant.userId, userName: participant.userName, seat: participant.seat, team: participant.team }));
   const turnTimeLeftMs = Math.max(0, (room.state.turnStartedAt + room.state.turnTimeoutMs) - Date.now());
   for (const [role, participant] of Array.from(room.participants.entries())) {
-    if (!participant.socketId) continue;
+    if (!participant.socketId || (recovery?.event === "synchronized" && role !== recovery.role)) continue;
     const view = getTeamPlayerView(room.state, role);
     io.to(participant.socketId).emit("game_state", {
       ...view,
+      ...(recovery?.role === role && { [recovery.event]: true }),
       isTeamGame: true,
       myRole: role,
       currentPlayer: view.turn,
