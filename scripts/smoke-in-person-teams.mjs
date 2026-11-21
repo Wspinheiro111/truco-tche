@@ -1,4 +1,5 @@
 import { io } from "socket.io-client";
+import assert from "node:assert/strict";
 import mysql from "mysql2/promise";
 
 const baseUrl = process.env.BASE_URL || "http://127.0.0.1:3000";
@@ -36,6 +37,54 @@ async function createUser(label, index) {
   return { registration, socket: await connectAndAuth(registration.data.user, registration.cookie) };
 }
 
+// Execute com --full-match para testar o servidor até 24 pontos, inclusive
+// a retomada do último assento após desconectar e abrir um novo socket.
+async function finishMatch(players, mode, code) {
+  const states = new Map();
+  const results = new Map();
+  function observe(socket, role) {
+    socket.on("game_state", state => states.set(role, state));
+    socket.on("game_over", result => results.set(role, result));
+  }
+  players.forEach(({ socket }, i) => observe(socket, `p${i + 1}`));
+
+  // A reconexão deve restituir a mão privada do jogador que trocou de socket.
+  const last = players.at(-1);
+  const role = `p${players.length}`;
+  const before = last.lastView;
+  last.socket.disconnect();
+  last.socket = await connectAndAuth(last.registration.data.user, last.registration.cookie);
+  observe(last.socket, role);
+  const recovered = await last.socket.timeout(6500).emitWithAck("reconnect_game", {});
+  assert.equal(recovered.roomCode, code);
+  assert.equal(recovered.role, role);
+  const after = states.get(role);
+  for (const key of ["myRole", "myHand", "team", "score", "turn", "table", "roundWins"]) {
+    assert.deepEqual(after[key], before[key], `${mode}: reconexão alterou ${key}`);
+  }
+
+  const deadline = Date.now() + 240_000;
+  let moves = 0;
+  while (results.size < players.length && Date.now() < deadline) {
+    const host = states.get("p1");
+    const actor = host && states.get(host.turn);
+    if (host?.phase !== "playing" || !actor || actor.phase !== "playing" || actor.turn !== actor.myRole) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      continue;
+    }
+    const socket = players[Number(actor.myRole.slice(1)) - 1].socket;
+    const reply = await socket.timeout(6500).emitWithAck("team_play_card", { cardId: actor.myHand[0].id });
+    assert.equal(reply.ok, true, reply.error);
+    moves++;
+  }
+  assert.equal(results.size, players.length, `${mode}: jogadores sem resultado final`);
+  const final = results.get("p1");
+  assert.ok(["A", "B"].includes(final.winner));
+  assert.equal(final.score[final.winner], 24);
+  for (const result of results.values()) assert.deepEqual(result, final);
+  return { reconnectedSeat: role, movesAfterReconnect: moves, winner: final.winner, score: final.score };
+}
+
 async function runMode(mode, playerCount) {
   const players = [];
   for (let index = 1; index <= playerCount; index += 1) players.push(await createUser(mode, index));
@@ -57,6 +106,8 @@ async function runMode(mode, playerCount) {
   const roster = teamStates[0].participants.sort((a, b) => a.seat - b.seat);
   const expectedTeams = Array.from({ length: playerCount }, (_, index) => index % 2 === 0 ? "A" : "B");
   if (roster.map(player => player.team).join("") !== expectedTeams.join("")) throw new Error(`${mode}: equipes não alternadas`);
+  const lastPlayer = players.at(-1);
+  lastPlayer.socket.on("game_state", state => { lastPlayer.lastView = state; });
   const roundResolved = waitFor(host.socket, "round_result");
   for (const state of teamStates.sort((a, b) => Number(a.myRole.slice(1)) - Number(b.myRole.slice(1)))) {
     const playerSocket = players[roles.indexOf(state.myRole)].socket;
@@ -65,7 +116,8 @@ async function runMode(mode, playerCount) {
   }
   const round = await roundResolved;
   if (!round?.teamGame || !["A", "B", "draw"].includes(round.result)) throw new Error(`${mode}: vaza de equipe não foi resolvida`);
-  return { mode, roomCode: table.code, playerCount, roles, teams: roster.map(player => player.team), roundResult: round.result };
+  const fullMatch = process.argv.includes("--full-match") ? await finishMatch(players, mode, table.code) : undefined;
+  return { fullMatch, mode, roomCode: table.code, playerCount, roles, teams: roster.map(player => player.team), roundResult: round.result };
 }
 
 async function cleanup() {
