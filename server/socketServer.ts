@@ -2060,7 +2060,8 @@ function teamNames(room: TeamRoomData): Record<TeamPlayer, string> {
 
 async function persistTeamRoomState(room: TeamRoomData, eventId: string): Promise<boolean> {
   if (!room.state || room.snapshotVersion === null) return true;
-  const persisted = await updateActiveOnlineGame(room.code, room.snapshotVersion, {
+  const expectedVersion = room.snapshotVersion;
+  const persisted = await updateActiveOnlineGame(room.code, expectedVersion, {
     stateJson: JSON.stringify(room.state),
     turnDeadline: getTurnDeadline(room.state),
     lastEventId: eventId,
@@ -2068,9 +2069,12 @@ async function persistTeamRoomState(room: TeamRoomData, eventId: string): Promis
     player2ReconnectedAt: undefined,
     status: room.state.phase === "game_over" ? "finished" : "active",
   });
-  if (persisted) { room.snapshotVersion += 1; return true; }
+  if (persisted) {
+    room.snapshotVersion = Math.max(room.snapshotVersion, expectedVersion + 1);
+    return true;
+  }
   const latest = await getActiveOnlineGameByRoom(room.code);
-  if (latest?.status === "active") { room.state = JSON.parse(latest.stateJson) as TeamGameState; room.snapshotVersion = latest.version; }
+  if (latest?.status === "active" && latest.version >= room.snapshotVersion) { room.state = JSON.parse(latest.stateJson) as TeamGameState; room.snapshotVersion = latest.version; }
   return false;
 }
 
@@ -2084,8 +2088,9 @@ async function restoreTeamSeat(io: Server, socket: Socket, userId: number,
     room = teamRooms.get(snapshot.roomCode) ?? restored;
     teamRooms.set(room.code, room);
   }
+  const persistedState = JSON.parse(snapshot.stateJson) as TeamGameState;
   if (snapshot.version > (room.snapshotVersion ?? 0)) {
-    room.state = JSON.parse(snapshot.stateJson) as TeamGameState;
+    room.state = persistedState;
     room.snapshotVersion = snapshot.version;
   }
   const seat = Array.from(room.participants).find(([, participant]) => participant.userId === userId);
@@ -2095,7 +2100,8 @@ async function restoreTeamSeat(io: Server, socket: Socket, userId: number,
   socketToRoom.set(socket.id, room.code);
   userToRoom.set(userId, room.code);
   socket.join(room.code);
-  emitTeamGameState(io, room, { role, event });
+  // O estado em memória pode conter uma jogada aguardando o commit do banco.
+  emitTeamGameState(io, { ...room, state: persistedState, snapshotVersion: snapshot.version }, { role, event });
   return role;
 }
 
@@ -2112,6 +2118,7 @@ function emitTeamGameState(io: Server, room: TeamRoomData,
       ...view,
       ...(recovery?.role === role && { [recovery.event]: true }),
       isTeamGame: true,
+      version: room.snapshotVersion,
       myRole: role,
       currentPlayer: view.turn,
       myName: participant.userName,

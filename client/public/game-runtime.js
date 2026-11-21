@@ -5163,6 +5163,7 @@ function ensureSocket() {
   });
 
   sio.on('game_state', (data) => {
+    if (data?.isTeamGame && sioGameState?.roomCode === data.roomCode && data.version < sioGameState.version) return;
     if (data && (data.reconnected || data.synchronized)) {
       sioGameActive = true;
       if (document.getElementById('online-game') && !document.getElementById('online-game').classList.contains('on')) show('online-game');
@@ -6123,7 +6124,7 @@ function renderInPersonHostInvite(invite) {
   qr.innerHTML = '';
   if (typeof QRCode === 'undefined') {
     qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">Preparando QR Code...</div>';
-    window.__trucoEnsureQrLibraries?.().then(() => renderInPersonHostInvite(invite)).catch(() => { qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">QR indisponível. Use Copiar convite.</div>'; });
+    window.__trucoEnsureQrLibraries?.().then(() => { if (_inPersonTableInvite?.code === invite.code) renderInPersonHostInvite(_inPersonTableInvite); }).catch(() => { qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">QR indisponível. Use Copiar convite.</div>'; });
     return;
   }
   new QRCode(qr, { text: getInPersonInvitePayload(invite.code, invite.inviteToken), width: 220, height: 220, colorDark: '#18372b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
@@ -7244,38 +7245,44 @@ function renderOnlineGame(state) {
   }
   // ── My hand (using card images like AI game) ──
   const handEl = document.getElementById('og-my-hand');
-  handEl.innerHTML = '';
-  if (state.myHand) {
-    state.myHand.forEach(card => {
-      const d = document.createElement('div');
-      const isManilha = typeof isMan === 'function' ? isMan(card.rank, card.suit) : false;
-      d.className = 'hc' + (isMyTurn ? '' : ' dis') + (isManilha ? ' man' : '');
-      d.title = card.rank + ' de ' + card.suit;
-      d.setAttribute('aria-label', card.rank + ' de ' + card.suit + (isManilha ? ' (manilha)' : ''));
-      d.setAttribute('role', 'button');
-      const img = document.createElement('img');
-      img.src = cimg(card);
-      img.alt = '';
-      d.appendChild(img);
-      if (isMyTurn) {
-        d.onclick = () => {
-          // Lock UI: disable all cards until server ACK
-          const allCards = handEl.querySelectorAll('.hc');
-          allCards.forEach(c => { c.classList.add('dis'); c.onclick = null; });
-          emitOnlineGameplayAction('play_card', { cardId: card.id }, (res) => {
-            if (res && res.error) {
-              toast(res.error, 'warn');
-              // Re-render to restore clickability on error
-              renderOnlineGame(sioGameState);
-              return;
-            }
-            // On success, server will emit new game_state which re-renders
-            syncOnlineStateNow();
-          });
-        };
-      }
-      handEl.appendChild(d);
-    });
+  // Preserve os alvos de toque quando o servidor repete a mesma mão e vez.
+  const handKey = JSON.stringify([isMyTurn, (state.myHand || []).map(card => card.id)]);
+  if (handEl.dataset.handKey !== handKey) {
+    handEl.dataset.handKey = handKey;
+    handEl.innerHTML = '';
+    if (state.myHand) {
+      state.myHand.forEach(card => {
+        const d = document.createElement('div');
+        const isManilha = typeof isMan === 'function' ? isMan(card.rank, card.suit) : false;
+        d.className = 'hc' + (isMyTurn ? '' : ' dis') + (isManilha ? ' man' : '');
+        d.title = card.rank + ' de ' + card.suit;
+        d.setAttribute('aria-label', card.rank + ' de ' + card.suit + (isManilha ? ' (manilha)' : ''));
+        d.setAttribute('role', 'button');
+        const img = document.createElement('img');
+        img.src = cimg(card);
+        img.alt = '';
+        d.appendChild(img);
+        if (isMyTurn) {
+          d.onclick = () => {
+            // Lock UI: disable all cards until server ACK
+            const allCards = handEl.querySelectorAll('.hc');
+            allCards.forEach(c => { c.classList.add('dis'); c.onclick = null; });
+            emitOnlineGameplayAction('play_card', { cardId: card.id }, (res) => {
+              if (res && res.error) {
+                toast(res.error, 'warn');
+                // Re-render to restore clickability on error
+                delete handEl.dataset.handKey;
+                renderOnlineGame(sioGameState);
+                return;
+              }
+              // On success, server will emit new game_state which re-renders
+              syncOnlineStateNow();
+            });
+          };
+        }
+        handEl.appendChild(d);
+      });
+    }
   }
   // ── Opponent hand (face down, using CARD_BACK like AI game) ──
   const oppHandEl = document.getElementById('og-opp-hand');
