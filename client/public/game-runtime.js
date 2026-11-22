@@ -37,6 +37,8 @@ var sioGameState = null;
 var sioGameActive = false;
 // ══════════ CARD IMAGES ══════════
 const CARD_IMGS = window.__TRUCO_CARD_IMGS || { Ouros: {}, Bastos: {}, Espadas: {}, Copas: {} };
+const CARD_BACK = '/cartas/verso.jpg';
+const { CHARS, SUITS, RANKS, TARGET_1v1, TT_TN, TT_TP, tv, ev, isMan, makeDeck, calcEnvido } = window.__TRUCO_OFFLINE_GAME;
 const TT_C = CARD_IMGS;
 function cimg(c){ return CARD_IMGS[c.suit]?.[c.rank] || ''; }
 
@@ -4973,7 +4975,9 @@ function tryRejoinGame() {
       setTimeout(() => showConnectionBanner('hidden'), 3000);
       show('online-game');
       scheduleOnlineStateSync();
-    } else if (sioRoom) {
+    } else {
+      recoverWaitingRoom();
+      if (!sioRoom) return;
       // A sala pode estar aguardando início em outra instância. Continue
       // consultando o snapshot até que a partida ativa exista no banco.
       scheduleOnlineStateSync();
@@ -5064,7 +5068,10 @@ function waitForAuth(cb) {
   if (!sio || !sioConnected) ensureSocket();
 }
 function ensureSocket() {
-  if (sio && sioConnected) return sio;
+  if (sio) {
+    if (!sio.connected && !sio.active) sio.connect();
+    return sio;
+  }
   // Usar _sioFn capturado antes do spaceEditor sobrescrever window.io
   var _ioFn = window._sioFn || (typeof io === 'function' && typeof io.Manager !== 'undefined' ? io : null);
   if (!_ioFn) {
@@ -5085,7 +5092,6 @@ function ensureSocket() {
     // Authenticate before requesting a reconnection, so identity is verified server-side.
     _sioDoAuth(function() {
       tryRejoinGame();
-      recoverWaitingRoom();
       // Atualiza o painel inicial pela consulta persistida após toda reconexão.
       refreshHomeActiveRooms();
     });
@@ -5158,6 +5164,7 @@ function ensureSocket() {
   });
 
   sio.on('game_state', (data) => {
+    if (data?.isTeamGame && sioGameState?.roomCode === data.roomCode && data.version < sioGameState.version) return;
     if (data && (data.reconnected || data.synchronized)) {
       sioGameActive = true;
       if (document.getElementById('online-game') && !document.getElementById('online-game').classList.contains('on')) show('online-game');
@@ -5191,10 +5198,7 @@ function ensureSocket() {
     sioRoom = null;
     sessionStorage.removeItem('truco_active_room');
     stopOnlineStateSync();
-    const isMe = data.winner === sioRole;
-    const msg = data.isWalkover
-      ? (isMe ? 'Adversário desconectou. Vitória sua!' : 'Você desconectou. Derrota.')
-      : (isMe ? `Vitória! ${data.score.p1} x ${data.score.p2}` : `Derrota! ${data.score.p1} x ${data.score.p2}`);
+    const isMe = data.winner === (data.teamGame ? sioGameState?.team : sioRole);
     showOnlineGameOver(isMe, data);
   });
 
@@ -6121,7 +6125,7 @@ function renderInPersonHostInvite(invite) {
   qr.innerHTML = '';
   if (typeof QRCode === 'undefined') {
     qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">Preparando QR Code...</div>';
-    window.__trucoEnsureQrLibraries?.().then(() => renderInPersonHostInvite(invite)).catch(() => { qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">QR indisponível. Use Copiar convite.</div>'; });
+    window.__trucoEnsureQrLibraries?.().then(() => { if (_inPersonTableInvite?.code === invite.code) renderInPersonHostInvite(_inPersonTableInvite); }).catch(() => { qr.innerHTML = '<div style="width:220px;height:220px;display:grid;place-items:center;color:#283">QR indisponível. Use Copiar convite.</div>'; });
     return;
   }
   new QRCode(qr, { text: getInPersonInvitePayload(invite.code, invite.inviteToken), width: 220, height: 220, colorDark: '#18372b', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
@@ -7242,38 +7246,44 @@ function renderOnlineGame(state) {
   }
   // ── My hand (using card images like AI game) ──
   const handEl = document.getElementById('og-my-hand');
-  handEl.innerHTML = '';
-  if (state.myHand) {
-    state.myHand.forEach(card => {
-      const d = document.createElement('div');
-      const isManilha = typeof isMan === 'function' ? isMan(card.rank, card.suit) : false;
-      d.className = 'hc' + (isMyTurn ? '' : ' dis') + (isManilha ? ' man' : '');
-      d.title = card.rank + ' de ' + card.suit;
-      d.setAttribute('aria-label', card.rank + ' de ' + card.suit + (isManilha ? ' (manilha)' : ''));
-      d.setAttribute('role', 'button');
-      const img = document.createElement('img');
-      img.src = cimg(card);
-      img.alt = '';
-      d.appendChild(img);
-      if (isMyTurn) {
-        d.onclick = () => {
-          // Lock UI: disable all cards until server ACK
-          const allCards = handEl.querySelectorAll('.hc');
-          allCards.forEach(c => { c.classList.add('dis'); c.onclick = null; });
-          emitOnlineGameplayAction('play_card', { cardId: card.id }, (res) => {
-            if (res && res.error) {
-              toast(res.error, 'warn');
-              // Re-render to restore clickability on error
-              renderOnlineGame(sioGameState);
-              return;
-            }
-            // On success, server will emit new game_state which re-renders
-            syncOnlineStateNow();
-          });
-        };
-      }
-      handEl.appendChild(d);
-    });
+  // Preserve os alvos de toque quando o servidor repete a mesma mão e vez.
+  const handKey = JSON.stringify([isMyTurn, (state.myHand || []).map(card => card.id)]);
+  if (handEl.dataset.handKey !== handKey) {
+    handEl.dataset.handKey = handKey;
+    handEl.innerHTML = '';
+    if (state.myHand) {
+      state.myHand.forEach(card => {
+        const d = document.createElement('div');
+        const isManilha = typeof isMan === 'function' ? isMan(card.rank, card.suit) : false;
+        d.className = 'hc' + (isMyTurn ? '' : ' dis') + (isManilha ? ' man' : '');
+        d.title = card.rank + ' de ' + card.suit;
+        d.setAttribute('aria-label', card.rank + ' de ' + card.suit + (isManilha ? ' (manilha)' : ''));
+        d.setAttribute('role', 'button');
+        const img = document.createElement('img');
+        img.src = cimg(card);
+        img.alt = '';
+        d.appendChild(img);
+        if (isMyTurn) {
+          d.onclick = () => {
+            // Lock UI: disable all cards until server ACK
+            const allCards = handEl.querySelectorAll('.hc');
+            allCards.forEach(c => { c.classList.add('dis'); c.onclick = null; });
+            emitOnlineGameplayAction('play_card', { cardId: card.id }, (res) => {
+              if (res && res.error) {
+                toast(res.error, 'warn');
+                // Re-render to restore clickability on error
+                delete handEl.dataset.handKey;
+                renderOnlineGame(sioGameState);
+                return;
+              }
+              // On success, server will emit new game_state which re-renders
+              syncOnlineStateNow();
+            });
+          };
+        }
+        handEl.appendChild(d);
+      });
+    }
   }
   // ── Opponent hand (face down, using CARD_BACK like AI game) ──
   const oppHandEl = document.getElementById('og-opp-hand');
@@ -7489,12 +7499,13 @@ function closeOnlineModal(id) {
 }
 
 function showOnlineGameOver(isWin, data) {
+  const scores = data.teamGame ? [data.score.A, data.score.B] : [data.score.p1, data.score.p2];
   const html = `
-    <div class="modal-overlay" id="m-online-gameover" style="display:flex">
-      <div class="modal" style="max-width:380px;text-align:center">
+    <div class="modal" id="m-online-gameover" role="dialog" aria-label="Resultado da partida">
+      <div class="sheet" style="max-width:380px;text-align:center">
         <div style="font-size:3rem;margin-bottom:.5rem">${isWin ? '🏆' : '😔'}</div>
         <div style="font-size:1.3rem;font-weight:700;margin-bottom:.3rem;color:${isWin ? 'var(--tg-green)' : 'var(--tg-red)'}">${isWin ? 'Vitória!' : 'Derrota'}</div>
-        <div style="font-size:1.5rem;font-weight:900;margin:.5rem 0">${data.score.p1} × ${data.score.p2}</div>
+        <div style="font-size:1.5rem;font-weight:900;margin:.5rem 0">${scores.join(' × ')}</div>
         ${data.isWalkover ? '<div style="font-size:.7rem;color:var(--txt3)">Adversário desconectou (W.O.)</div>' : ''}
         <div style="display:flex;gap:.5rem;justify-content:center;margin-top:1rem">
           <button onclick="closeOnlineModal('m-online-gameover');show('online-lobby')" style="background:var(--tg-gold);color:#000;border:none;padding:.5rem 1.2rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.85rem">Voltar ao Lobby</button>

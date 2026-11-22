@@ -307,6 +307,26 @@ pnpm start
 
 A build gera os arquivos frontend em `dist/public` e o bundle do servidor em `dist`.
 
+### Partidas completas de duplas e trios
+
+Execute os testes com a aplicação rodando em um ambiente de teste e um banco descartável. Cada execução cadastra jogadores e cria mesas. Configure `VITE_APP_ID` e `JWT_SECRET` antes de iniciar o servidor para autenticar as sessões.
+
+O teste de servidor joga por Socket.IO, reconecta o quarto ou sexto jogador após a primeira vaza e confere se todos os participantes recebem o mesmo resultado aos 24 pontos.
+
+```bash
+BASE_URL=http://localhost:3000 node scripts/smoke-in-person-teams.mjs --full-match
+```
+
+O teste de interface usa sessões Chromium independentes em tamanho de celular. Os jogadores copiam e colam o convite da Mesa Presencial. Após a primeira carta, o último jogador recarrega a página. O teste exige a recuperação da mão, do turno e do placar antes de continuar até o resultado final.
+
+```bash
+python -m pip install playwright
+playwright install chromium
+BASE_URL=http://localhost:3000 python scripts/e2e-team-browser.py
+```
+
+Para usar um Chromium já instalado, defina `CHROMIUM_PATH` com o caminho do executável.
+
 ## Estrutura do projeto
 
 ```text
