@@ -20,7 +20,7 @@ VIEW = """() => {
     const s = window.sioGameState;
     if (!s?.isTeamGame) return null;
     return {room: s.roomCode, role: s.myRole, team: s.team, turn: s.turn,
-            score: s.score, phase: s.phase, hand: s.myHand.map(c => c.id),
+            score: s.score, phase: s.phase, truco: s.trucoLevel, hand: s.myHand.map(c => c.id),
             cards: s.table.map(c => c.card.id), rounds: s.roundWins};
 }"""
 
@@ -66,6 +66,7 @@ def run_table(browser, count, contexts, errors):
 
     for seat, page in enumerate(pages, 1):
         expect(page.locator("#og-my-hand .hc:visible")).to_have_count(3, timeout=TIMEOUT)
+        page.wait_for_function("document.querySelector('#og-opp-hand img')?.naturalWidth > 0")
         state = page.evaluate(VIEW)
         assert state and state["room"] == room and state["role"] == f"p{seat}"
         assert state["team"] == ("A" if seat % 2 else "B")
@@ -89,15 +90,22 @@ def run_table(browser, count, contexts, errors):
 
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
-        if host.locator("#m-online-gameover").is_visible():
-            break
         state = host.evaluate(VIEW)
+        if state and state["phase"] == "game_over":
+            expect(host.locator("#m-online-gameover")).to_be_visible(timeout=TIMEOUT)
+            break
         if not state or state["phase"] != "playing":
             host.wait_for_timeout(50)
             continue
         actor = pages[int(state["turn"][1:]) - 1]
+        if state["truco"] == 1:
+            actor.locator("#og-actions .sb-truco").click()
+            host.wait_for_function("sioGameState.phase === 'truco_neg'")
+            responder = pages[int(host.evaluate(VIEW)["turn"][1:]) - 1]
+            responder.locator("#m-online-truco").get_by_role("button", name="Aceitar").click()
+            host.wait_for_function("sioGameState.phase === 'playing' && sioGameState.trucoLevel === 2")
         actor.locator("#og-my-hand .hc:not(.dis)").first.click()
-        host.wait_for_function("prior => JSON.stringify(window.sioGameState?.table.map(t => t.card.id)) !== JSON.stringify(prior)", arg=state["cards"])
+        host.wait_for_function("prior => sioGameState.phase !== 'playing' || JSON.stringify(sioGameState.table.map(t => t.card.id)) !== JSON.stringify(prior)", arg=state["cards"])
     else:
         raise AssertionError(f"{mode}: tempo esgotado antes de 24 pontos")
 

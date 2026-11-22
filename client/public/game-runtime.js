@@ -7500,8 +7500,8 @@ function closeOnlineModal(id) {
 function showOnlineGameOver(isWin, data) {
   const scores = data.teamGame ? [data.score.A, data.score.B] : [data.score.p1, data.score.p2];
   const html = `
-    <div class="modal-overlay" id="m-online-gameover" style="display:flex">
-      <div class="modal" style="max-width:380px;text-align:center">
+    <div class="modal" id="m-online-gameover" role="dialog" aria-label="Resultado da partida">
+      <div class="sheet" style="max-width:380px;text-align:center">
         <div style="font-size:3rem;margin-bottom:.5rem">${isWin ? '🏆' : '😔'}</div>
         <div style="font-size:1.3rem;font-weight:700;margin-bottom:.3rem;color:${isWin ? 'var(--tg-green)' : 'var(--tg-red)'}">${isWin ? 'Vitória!' : 'Derrota'}</div>
         <div style="font-size:1.5rem;font-weight:900;margin:.5rem 0">${scores.join(' × ')}</div>
