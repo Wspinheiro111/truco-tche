@@ -932,7 +932,7 @@ function show(id){
   SFX.click();
 }
 
-function toggleAISection(){
+function openAISelection(){
   // Guard: exige login para jogar
   const _lu = JSON.parse(localStorage.getItem('truco_local_user') || 'null');
   if (!_lu) {
@@ -943,10 +943,10 @@ function toggleAISection(){
     if (infoEl) { infoEl.textContent = 'Faça login para começar a jogar e registrar suas partidas!'; infoEl.classList.remove('hidden'); }
     return;
   }
-  const s=document.getElementById('ai-section');
-  s.style.display=s.style.display==='none'?'block':'none';
-  if(s.style.display==='block')renderChars();
-  SFX.click();
+  show('ai-selection');
+  renderChars();
+  document.getElementById('char-row').scrollTop = 0;
+  document.getElementById('ai-selection-title').focus();
 }
 
 function toast(msg,type='info',dur=3200){
@@ -1081,7 +1081,9 @@ function renderChars(){
     const ok=TT_P.unlocked.includes(ch.id);
     const stat=TT_P.charStats[ch.id]||{wins:0,losses:0};
     const dots=[1,2,3].map(i=>`<div class="dp${i<=ch.diff?' on':''}"></div>`).join('');
-    const btn=document.createElement('div');
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.disabled=!ok;
     btn.className='cc'+(ok?'':' lk');
     btn.innerHTML=`${!ok?`<span class="cc-lock">🔒${ch.need}v</span>`:''}
       <span class="cc-av">${ch.av}</span>
@@ -4574,7 +4576,7 @@ async function renderOnlineHistory() {
           if (pendingChar === 'online') {
             openOnlineLobby();
           } else if (pendingChar === 'ai-section') {
-            toggleAISection();
+            openAISelection();
           } else if (pendingChar === 'tournament') {
             startTournament();
           } else {
@@ -4623,7 +4625,7 @@ async function renderOnlineHistory() {
           if (pendingChar === 'online') {
             openOnlineLobby();
           } else if (pendingChar === 'ai-section') {
-            toggleAISection();
+            openAISelection();
           } else if (pendingChar === 'tournament') {
             startTournament();
           } else {
@@ -5012,7 +5014,7 @@ function recoverWaitingRoom() {
 
 function restorePendingOnlineNegotiation(state) {
   if (!state || state.turn !== state.myRole) return;
-  const callerName = (role) => role === state.myRole ? state.myName : state.opponentName;
+  const callerName = (role) => state.names?.[role] || (role === state.myRole ? state.myName : state.opponentName);
   if (state.phase === 'truco_neg' && !document.getElementById('m-online-truco')) {
     showOnlineTrucoModal({ level: state.trucoLevel, callerName: callerName(state.trucoCaller) });
   }
@@ -5182,6 +5184,7 @@ function ensureSocket() {
     if (data && Array.isArray(data.roundWins) && data.roundWins.length === 0 && window._ogResolvedTrick) {
       clearOnlineResolvedTrick();
     }
+    if (data.phase !== 'truco_neg' || data.turn !== data.myRole) closeOnlineModal('m-online-truco');
     renderOnlineGame(data);
   });
 
@@ -5214,7 +5217,7 @@ function ensureSocket() {
 
   sio.on('truco_accepted', (data) => {
     closeOnlineModal('m-online-truco');
-    toast(`Truco aceito! Vale ${data.level}`, 'info');
+    toast(`${TT_TN[data.level]} aceito. Vale ${TT_TP[data.level]} pontos.`, 'info');
   });
 
   sio.on('truco_refused', (data) => {
@@ -7447,22 +7450,47 @@ if (new URLSearchParams(window.location.search).has('layoutAudit')) {
 
 // ── Modals for Truco/Envido/Flor challenges ──
 function showOnlineTrucoModal(data) {
-  const level = data.level;
-  const labels = { 1: 'Truco!', 2: 'Retruco!', 3: 'Vale 4!' };
-  let html = `
-    <div class="modal-overlay" id="m-online-truco" style="display:flex">
-      <div class="modal" style="max-width:340px">
-        <div style="font-size:2rem;text-align:center;margin-bottom:.5rem">🃏</div>
-        <div style="font-size:1.1rem;font-weight:700;text-align:center;margin-bottom:.3rem">${data.callerName} pediu ${labels[level] || 'Truco!'}</div>
-        <div style="font-size:.75rem;color:var(--txt3);text-align:center;margin-bottom:1rem">Vale ${level * 3 || 3} pontos</div>
-        <div style="display:flex;gap:.5rem;justify-content:center">
-          <button onclick="emitOnlineModalAction('accept_truco');closeOnlineModal('m-online-truco')" style="background:var(--tg-green);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">✅ Aceitar</button>
-          ${level < 3 ? `<button onclick="emitOnlineModalAction(sioGameState?.isTeamGame ? 'call_truco' : 'raise_truco');closeOnlineModal('m-online-truco')" style="background:var(--tg-gold);color:#000;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">🔥 ${level === 1 ? 'Retruco!' : 'Vale 4!'}</button>` : ''}
-          <button onclick="emitOnlineModalAction('refuse_truco');closeOnlineModal('m-online-truco')" style="background:var(--tg-red);color:#fff;border:none;padding:.5rem 1rem;border-radius:var(--r);font-weight:700;cursor:pointer;font-size:.8rem">❌ Correr</button>
+  const { level } = data;
+  const name = TT_TN[level];
+  const points = TT_TP[level];
+  const previousPoints = TT_TP[level - 1];
+  const nextName = TT_TN[level + 1];
+  if (!name || !previousPoints) return;
+  const current = document.getElementById('m-online-truco');
+  if (current?.dataset.level === String(level)) return;
+  current?.remove();
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal" id="m-online-truco" role="dialog" aria-modal="true"
+      aria-labelledby="online-truco-title" data-level="${level}">
+      <div class="sheet online-truco-sheet">
+        <div class="sh-ttl" id="online-truco-title">${name}</div>
+        <div class="sh-sub">${escapeRoomText(data.callerName || 'Adversário')} fez o pedido</div>
+        <div class="sh-stakes"><strong>${points} pontos</strong> em jogo · Correr concede ${previousPoints} ${previousPoints === 1 ? 'ponto' : 'pontos'}</div>
+        <div class="mbtns">
+          <button type="button" class="mb mb-yes" onclick="respondToOnlineTruco('accept_truco')">Aceitar</button>
+          ${nextName ? `<button type="button" class="mb mb-raise" onclick="respondToOnlineTruco('raise_truco')">Pedir ${nextName} · ${TT_TP[level + 1]} pontos</button>` : ''}
+          <button type="button" class="mb mb-no" onclick="respondToOnlineTruco('refuse_truco')">Correr</button>
         </div>
       </div>
-    </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
+    </div>`);
+}
+
+function respondToOnlineTruco(action) {
+  const modal = document.getElementById('m-online-truco');
+  if (!modal || !sio?.connected) {
+    toast('Aguarde a reconexão para responder.', 'warn');
+    return;
+  }
+  const buttons = modal.querySelectorAll('button');
+  buttons.forEach(button => { button.disabled = true; });
+  emitOnlineGameplayAction(action, {}, result => {
+    if (result?.ok) modal.remove();
+    else {
+      buttons.forEach(button => { button.disabled = false; });
+      toast(result?.error || 'Não foi possível responder. Tente novamente.', 'warn');
+    }
+  });
 }
 
 function showOnlineEnvidoModal(data) {

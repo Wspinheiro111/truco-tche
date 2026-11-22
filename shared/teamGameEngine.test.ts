@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptTeamEnvido, callTeamEnvido, callTeamTruco, createTeamGameState, dealTeamHand, getTeamModeConfig, playTeamCard, teamForSeat } from "./teamGameEngine";
+import { acceptTeamEnvido, acceptTeamTruco, callTeamEnvido, callTeamTruco, createTeamGameState, dealTeamHand, getTeamModeConfig, playTeamCard, raiseTeamTruco, refuseTeamTruco, teamForSeat } from "./teamGameEngine";
 
 describe("team game engine", () => {
   it("creates alternating team seats and deals three unique cards to each player", () => {
@@ -20,6 +20,21 @@ describe("team game engine", () => {
     const player = state.turn;
     const result = playTeamCard(state, player, state.hands[player][0].id);
     expect(result.completedTrick).toHaveLength(6);
+  });
+
+  it.each(["2v2", "3v3"] as const)("retoma a mesma vaza após Vale Quatro em %s", mode => {
+    const initial = dealTeamHand(createTeamGameState(mode, 99));
+    const afterCard = playTeamCard(initial, "p1", initial.hands.p1[0].id).state;
+    const requested = callTeamTruco(afterCard, "p2");
+    const raised = raiseTeamTruco(requested, requested.turn);
+    const finalOffer = raiseTeamTruco(raised, raised.turn);
+
+    expect(finalOffer.trucoLevel).toBe(4);
+    expect(() => raiseTeamTruco(finalOffer, finalOffer.turn)).toThrow();
+    expect(refuseTeamTruco(finalOffer, finalOffer.turn).points).toBe(3);
+    const accepted = acceptTeamTruco(finalOffer, finalOffer.turn);
+    expect(accepted.turn).toBe("p2");
+    expect(playTeamCard(accepted, "p2", accepted.hands.p2[0].id).state.table).toHaveLength(2);
   });
 
   it("defines capacities and alternating teams for every supported mode", () => {

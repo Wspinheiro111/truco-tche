@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createGameState, dealHand, playCard, callTruco, acceptTruco,
-  refuseTruco, callEnvido, acceptEnvido, refuseEnvido, callFlor, acceptFlor,
+  refuseTruco, raiseTruco, callEnvido, acceptEnvido, refuseEnvido, callFlor, acceptFlor,
   fold, getPlayerView, TRUCO_POINTS, TURN_TIMEOUT_MS, isTurnExpired,
 } from "./gameEngine";
 
@@ -35,6 +35,21 @@ describe("Game Engine", () => {
       expect(card).toHaveProperty("ev");
       expect(["Espadas", "Bastos", "Copas", "Ouros"]).toContain(card.suit);
     }
+  });
+
+  it("devolve a vez a quem chamou Truco após o Retruco", () => {
+    const initial = dealHand(createGameState());
+    const afterCard = playCard(initial, "p1", initial.hands.p1[0].id).state;
+    const request = callTruco(afterCard, "p2");
+    const raised = raiseTruco(request, "p1");
+    const accepted = acceptTruco(raised, "p2");
+
+    expect(accepted.turn).toBe("p2");
+    expect(accepted.trucoLevel).toBe(3);
+    expect(playCard(accepted, "p2", accepted.hands.p2[0].id).completedTrick).toHaveLength(2);
+    expect(refuseTruco(raised, "p2").state).toMatchObject({
+      phase: "between_hands", score: { p1: 2, p2: 0 },
+    });
   });
 
   it("allows playing a card when it is the player's turn", () => {
