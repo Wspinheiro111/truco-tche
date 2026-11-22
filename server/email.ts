@@ -1,6 +1,6 @@
 /**
  * Email service for Truco Tchê
- * Sends transactional emails (PIN reset, welcome, etc.)
+ * Sends transactional emails (recuperação de senha, welcome, etc.)
  * Uses nodemailer with SMTP configuration from environment variables.
  * If SMTP is not configured, falls back to console logging (development mode).
  */
@@ -26,24 +26,27 @@ function createTransporter() {
   });
 }
 
-export async function sendPinResetEmail(to: string, name: string, resetToken: string, origin: string): Promise<boolean> {
-  const resetUrl = `${origin}?resetToken=${encodeURIComponent(resetToken)}`;
+export async function sendPasswordResetEmail(to: string, name: string, resetToken: string, origin: string): Promise<boolean> {
+  const url = new URL("/", origin);
+  url.searchParams.set("resetToken", resetToken);
+  const resetUrl = url.href;
   const transporter = createTransporter();
 
+  const safeName = name.replace(/[&<>]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char] ?? char));
   const html = `
     <!DOCTYPE html>
     <html lang="pt-BR">
-    <head><meta charset="UTF-8"><title>Redefinição de PIN - Truco Tchê</title></head>
+    <head><meta charset="UTF-8"><title>Redefinição de senha - Truco Tchê</title></head>
     <body style="font-family: Georgia, serif; background: #1a0e06; color: #f0e0c0; padding: 40px 20px; margin: 0;">
       <div style="max-width: 480px; margin: 0 auto; background: #2a1a0e; border: 2px solid #8b6508; border-radius: 16px; padding: 32px;">
         <h1 style="font-size: 2rem; color: #c8960a; text-align: center; margin: 0 0 8px;">🃏 Truco Tchê</h1>
         <p style="text-align: center; color: #c8b898; font-style: italic; margin: 0 0 24px;">O Desafio do Pago Virtual</p>
         <hr style="border: 1px solid #3d2a1a; margin-bottom: 24px;">
-        <p style="margin: 0 0 12px;">Olá, <strong style="color: #c8960a;">${name}</strong>!</p>
-        <p style="margin: 0 0 20px; line-height: 1.6;">Recebemos uma solicitação para redefinir o PIN da sua conta no Truco Tchê. Clique no botão abaixo para criar um novo PIN:</p>
+        <p style="margin: 0 0 12px;">Olá, <strong style="color: #c8960a;">${safeName}</strong>!</p>
+        <p style="margin: 0 0 20px; line-height: 1.6;">Recebemos uma solicitação para redefinir a senha da sua conta no Truco Tchê. Clique no botão abaixo para criar uma nova senha:</p>
         <div style="text-align: center; margin: 28px 0;">
           <a href="${resetUrl}" style="background: linear-gradient(135deg, #c8960a, #8b6508); color: #fff; font-weight: 700; font-size: 1rem; padding: 14px 32px; border-radius: 10px; text-decoration: none; display: inline-block; box-shadow: 0 4px 16px rgba(200,150,10,.3);">
-            🔑 Redefinir meu PIN
+            🔑 Redefinir minha senha
           </a>
         </div>
         <p style="margin: 0 0 8px; font-size: 0.85rem; color: #c8b898;">Ou copie e cole este link no seu navegador:</p>
@@ -58,9 +61,10 @@ export async function sendPinResetEmail(to: string, name: string, resetToken: st
     </html>
   `;
 
-  const text = `Olá, ${name}!\n\nRedefinição de PIN - Truco Tchê\n\nAcesse o link abaixo para criar um novo PIN (válido por 15 minutos):\n${resetUrl}\n\nSe não foi você, ignore este e-mail.`;
+  const text = `Olá, ${name}!\n\nRedefinição de senha - Truco Tchê\n\nAcesse o link abaixo para criar uma nova senha (válido por 15 minutos):\n${resetUrl}\n\nSe não foi você, ignore este e-mail.`;
 
   if (!transporter) {
+    if (process.env.NODE_ENV !== "development") return false;
     // Development mode: log to console instead of sending
     console.log(`\n[EMAIL - DEV MODE] PIN Reset for ${to}`);
     console.log(`Reset URL: ${resetUrl}`);
@@ -73,13 +77,13 @@ export async function sendPinResetEmail(to: string, name: string, resetToken: st
     await transporter.sendMail({
       from,
       to,
-      subject: '🔑 Redefinição de PIN - Truco Tchê',
+      subject: '🔑 Redefinição de senha - Truco Tchê',
       text,
       html,
     });
     return true;
   } catch (error) {
-    console.error('[Email] Failed to send PIN reset email:', error);
+    console.error('[Email] Failed to send recuperação de senha email:', error);
     return false;
   }
 }
