@@ -38,6 +38,7 @@ var sioGameActive = false;
 // ══════════ CARD IMAGES ══════════
 const CARD_IMGS = window.__TRUCO_CARD_IMGS || { Ouros: {}, Bastos: {}, Espadas: {}, Copas: {} };
 const CARD_BACK = '/cartas/verso.jpg';
+const { CHARS, SUITS, RANKS, TARGET_1v1, TT_TN, TT_TP, tv, ev, isMan, makeDeck, calcEnvido } = window.__TRUCO_OFFLINE_GAME;
 const TT_C = CARD_IMGS;
 function cimg(c){ return CARD_IMGS[c.suit]?.[c.rank] || ''; }
 
