@@ -4493,51 +4493,17 @@ async function renderOnlineHistory() {
     updateHomeCTA();
   }
 
-  // ─── PIN digit inputs ───
-  function setupPinInputs() {
-    document.querySelectorAll('.la-pin-row').forEach(row => {
-      const digits = row.querySelectorAll('.la-pin-digit');
-      digits.forEach((inp, i) => {
-        inp.addEventListener('input', e => {
-          const v = e.target.value.replace(/\D/g, '');
-          e.target.value = v.slice(0, 1);
-          if (v && i < 5) digits[i + 1].focus();
-          e.target.classList.toggle('filled', !!v);
-        });
-        inp.addEventListener('keydown', e => {
-          if (e.key === 'Backspace' && !inp.value && i > 0) {
-            digits[i - 1].focus();
-            digits[i - 1].value = '';
-            digits[i - 1].classList.remove('filled');
-          }
-        });
-        inp.addEventListener('paste', e => {
-          e.preventDefault();
-          const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6);
-          text.split('').forEach((ch, j) => {
-            if (digits[j]) {
-              digits[j].value = ch;
-              digits[j].classList.toggle('filled', !!ch);
-            }
-          });
-          if (text.length > 0) digits[Math.min(text.length, 5)].focus();
-        });
-      });
-    });
-  }
-
-  function getPin(rowId) {
-    const digits = document.querySelectorAll(`#${rowId} .la-pin-digit`);
-    let pin = '';
-    digits.forEach(d => pin += d.value);
-    return pin;
-  }
-
-  function clearPin(rowId) {
-    document.querySelectorAll(`#${rowId} .la-pin-digit`).forEach(d => {
-      d.value = '';
-      d.classList.remove('filled');
-    });
+  function readNewPassword(id, errorId) {
+    const password = document.getElementById(id).value;
+    if (password.length < 8 || !password.trim() || new TextEncoder().encode(password).length > 72) {
+      showError(errorId, 'Crie uma senha com pelo menos 8 caracteres e até 72 bytes.');
+      return null;
+    }
+    if (password !== document.getElementById(id + '-confirm').value) {
+      showError(errorId, 'As senhas precisam ser iguais.');
+      return null;
+    }
+    return password;
   }
 
   // ─── Screen switching ───
@@ -4581,22 +4547,24 @@ async function renderOnlineHistory() {
     const phone = document.getElementById('rg-phone')?.value.trim();
     const state = document.getElementById('rg-state')?.value;
     const city = document.getElementById('rg-city')?.value.trim();
-    const pin = getPin('rg-pin-row');
+    const password = readNewPassword('rg-password', 'rg-error');
+    if (password === null) return;
 
     if (!name || name.length < 2) return showError('rg-error', 'Informe seu nome (mínimo 2 caracteres)');
     if (!email || !email.includes('@')) return showError('rg-error', 'Informe um e-mail válido');
-    if (!/^\d{6}$/.test(pin)) return showError('rg-error', 'O PIN deve ter exatamente 6 dígitos numéricos');
 
     const btn = document.getElementById('rg-submit');
     btn.disabled = true; btn.textContent = 'Criando...';
 
     try {
-      const data = await trpcMutation('localAuth.register', { name, email, phone: phone || undefined, state: state || undefined, city: city || undefined, pin });
+      const data = await trpcMutation('localAuth.register', { name, email, phone: phone || undefined, state: state || undefined, city: city || undefined, password });
+      resetSocketSession();
       saveLocalUser(data.user);
       updateLoggedScreen();
       updateHomeCTA();
       if (typeof loadPilasBalance === 'function') loadPilasBalance();
-      clearPin('rg-pin-row');
+      document.getElementById('rg-password').value = '';
+      document.getElementById('rg-password-confirm').value = '';
       // Se havia ação pendente, executa após fechar o modal
       const pendingChar = window._pendingGameChar;
       if (pendingChar) {
@@ -4626,22 +4594,23 @@ async function renderOnlineHistory() {
   // ─── Login ───
   window.localLogin = async function() {
     const email = document.getElementById('li-email')?.value.trim();
-    const pin = getPin('li-pin-row');
+    const password = document.getElementById('li-password').value;
 
     if (!email || !email.includes('@')) return showError('li-error', 'Informe um e-mail válido');
-    if (!/^\d{6}$/.test(pin)) return showError('li-error', 'O PIN deve ter exatamente 6 dígitos');
+    if (!password) return showError('li-error', 'Informe sua senha ou PIN.');
 
     const btn = document.getElementById('li-submit');
     btn.disabled = true; btn.textContent = 'Entrando...';
 
     try {
-      const data = await trpcMutation('localAuth.login', { email, pin });
+      const data = await trpcMutation('localAuth.login', { email, password });
+      resetSocketSession();
       saveLocalUser(data.user);
       updateLoggedScreen();
       updateHomeCTA();
       checkAdminAccess();
       if (typeof loadPilasBalance === 'function') loadPilasBalance();
-      clearPin('li-pin-row');
+      document.getElementById('li-password').value = '';
       // Limpar mensagem informativa
       const infoEl = document.getElementById('la-login-info');
       if (infoEl) { infoEl.textContent = ''; infoEl.classList.add('hidden'); }
@@ -4671,7 +4640,14 @@ async function renderOnlineHistory() {
     }
   };
 
-  // ─── Forgot PIN ───
+  window.localShowRecoveryRequest = function() {
+    resetToken = null;
+    document.getElementById('la-forgot-step1').style.display = 'block';
+    document.getElementById('la-forgot-step2').style.display = 'none';
+    laShowScreen('la-forgot');
+  };
+
+  // ─── Recuperação de acesso ───
   window.localForgotPin = async function() {
     const email = document.getElementById('fp-email')?.value.trim();
     if (!email || !email.includes('@')) return showError('fp-error', 'Informe um e-mail válido');
@@ -4679,10 +4655,10 @@ async function renderOnlineHistory() {
     const btn = document.querySelector('#la-forgot-step1 .la-btn-primary');
     if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
     try {
-      // Sugestão 1: token is sent via email, not returned in response
-      await trpcMutation('localAuth.forgotPin', { email, origin: window.location.origin });
-      document.getElementById('la-forgot-step1').style.display = 'none';
-      document.getElementById('la-forgot-step2').style.display = 'block';
+      const { message } = await trpcMutation('localAuth.forgotPin', { email });
+      const notice = document.getElementById('fp-notice');
+      notice.textContent = message;
+      notice.classList.remove('hidden');
     } catch (e) {
       showError('fp-error', e.message);
     } finally {
@@ -4690,27 +4666,31 @@ async function renderOnlineHistory() {
     }
   };
 
-  // ─── Reset PIN ───
+  // ─── Redefinir senha ───
   window.localResetPin = async function() {
-    const newPin = getPin('fp-pin-row');
-    if (!/^\d{6}$/.test(newPin)) return showError('fp-error2', 'O PIN deve ter exatamente 6 dígitos');
-    // Sugestão 1: token is read from the input field (pasted from email link)
-    const tokenInput = document.getElementById('fp-token-display')?.value?.trim();
-    if (!tokenInput) return showError('fp-error2', 'Cole o token recebido por e-mail.');
+    if (!resetToken) return showError('fp-error2', 'Abra o link recebido no seu e-mail.');
+    const newPassword = readNewPassword('fp-password', 'fp-error2');
+    if (newPassword === null) return;
 
+    const button = document.getElementById('fp-submit');
+    button.disabled = true;
     try {
-      await trpcMutation('localAuth.resetPin', { resetToken: tokenInput, newPin });
+      await trpcMutation('localAuth.resetPin', { resetToken, newPassword });
       resetToken = null;
       // Fetch profile after reset (auto-login)
       const profile = await trpcQuery('localAuth.profile');
+      resetSocketSession();
       saveLocalUser(profile);
       laShowScreen('la-logged');
       updateLoggedScreen();
-      clearPin('fp-pin-row');
+      document.getElementById('fp-password').value = '';
+      document.getElementById('fp-password-confirm').value = '';
       document.getElementById('la-forgot-step1').style.display = 'block';
       document.getElementById('la-forgot-step2').style.display = 'none';
     } catch (e) {
       showError('fp-error2', e.message);
+    } finally {
+      button.disabled = false;
     }
   };
 
@@ -4718,7 +4698,11 @@ async function renderOnlineHistory() {
   window.localLogout = async function() {
     try {
       await trpcMutation('auth.logout', {});
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      toast('Não foi possível sair. Tente novamente.', 'warn');
+      return;
+    }
+    resetSocketSession();
     saveLocalUser(null);
     laShowScreen('la-login');
   };
@@ -4870,23 +4854,29 @@ async function renderOnlineHistory() {
     }
   }
 
-  // ─── Init ───
-  document.addEventListener('DOMContentLoaded', () => {
-    setupPinInputs();
+  function initLocalAuth() {
     populateStates();
     updateHomeCTA();
     if (localUser) updateLoggedScreen();
-    // Verify session with server
-    setTimeout(checkSession, 500);
-  });
 
-  // If DOM already loaded
-  if (document.readyState !== 'loading') {
-    setupPinInputs();
-    populateStates();
-    updateHomeCTA();
-    if (localUser) updateLoggedScreen();
-    setTimeout(checkSession, 500);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('resetToken')) {
+      resetToken = url.searchParams.get('resetToken');
+      url.searchParams.delete('resetToken');
+      history.replaceState({}, '', url);
+      openModal('m-auth');
+      laShowScreen('la-forgot');
+      document.getElementById('la-forgot-step1').style.display = 'none';
+      document.getElementById('la-forgot-step2').style.display = 'block';
+      document.getElementById('fp-instructions').textContent = 'Crie uma nova senha para acessar sua conta.';
+    }
+    checkSession();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initLocalAuth, { once: true });
+  } else {
+    queueMicrotask(initLocalAuth);
   }
 
   // Expor globalmente para outros scripts
@@ -5067,6 +5057,22 @@ function waitForAuth(cb) {
   _sioAuthCallbacks.push(cb);
   if (!sio || !sioConnected) ensureSocket();
 }
+function resetSocketSession() {
+  if (sioReconnectTimer) clearTimeout(sioReconnectTimer);
+  sioReconnectTimer = null;
+  stopOnlineStateSync();
+  sio?.disconnect();
+  sio = null;
+  sioConnected = false;
+  sioAuthenticated = false;
+  _sioAuthCallbacks.length = 0;
+  sioGameActive = false;
+  sioGameState = null;
+  sioRoom = null;
+  sioRole = null;
+  sessionStorage.removeItem('truco_active_room');
+}
+
 function ensureSocket() {
   if (sio) {
     if (!sio.connected && !sio.active) sio.connect();

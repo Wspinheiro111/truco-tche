@@ -253,6 +253,12 @@ O motor de regras fica em `shared/` para permitir validação consistente no ser
 
    Esse script executa `drizzle-kit generate` e `drizzle-kit migrate`.
 
+### Acesso com e-mail e senha
+
+O cadastro no jogo usa e-mail e senha. Jogadores já cadastrados podem digitar seu PIN de seis dígitos no campo **Senha ou PIN**. O link de recuperação permite criar uma nova senha para a mesma conta.
+
+Para enviar a recuperação em produção, configure `PUBLIC_APP_URL` com a URL pública do jogo e `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e `SMTP_FROM` com os dados do provedor de e-mail. Em desenvolvimento, sem SMTP, o link aparece no log local do servidor.
+
 ## Executar em desenvolvimento
 
 Inicie o servidor de desenvolvimento:

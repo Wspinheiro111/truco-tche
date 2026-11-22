@@ -201,7 +201,7 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId,
+        appId: ENV.appId || (openId.startsWith("local:") ? "truco-tche" : ""),
         name: options.name || "",
       },
       options

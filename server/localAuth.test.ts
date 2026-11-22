@@ -1,7 +1,11 @@
 /**
  * Tests for the 9 critical improvements to Truco Tchê
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import bcrypt from 'bcryptjs';
+import { type TrpcContext } from './_core/context';
+import { sdk } from './_core/sdk';
+import { localAuthRouter } from './localAuth';
 import * as db from './db';
 
 // ─── Sugestão 9: City normalization ──────────────────────────────────────────
@@ -111,5 +115,52 @@ describe('forgotPin security', () => {
     expect(mockResponse).not.toHaveProperty('resetToken');
     expect(mockResponse.success).toBe(true);
     expect(mockResponse.message).toContain('e-mail');
+  });
+});
+
+
+describe('Cadastro e login com senha', () => {
+  const email = 'jogador@example.test';
+  const account = {
+    id: 8, email, name: 'Jogador', openId: `local:${email}`,
+    phone: null, state: null, city: null, role: 'user' as const,
+    lockedUntil: null, googleLinked: false, loginMethod: 'local', failedLoginAttempts: 0,
+    pinHash: null as string | null, lastSignedIn: null, createdAt: new Date(), updatedAt: new Date(),
+  };
+
+  function createCaller() {
+    const cookie = vi.fn();
+    const caller = localAuthRouter.createCaller({
+      user: null,
+      req: { protocol: 'http', headers: {} } as TrpcContext['req'],
+      res: { cookie } as unknown as TrpcContext['res'],
+    });
+    vi.spyOn(sdk, 'createSessionToken').mockResolvedValue('sessao-de-teste');
+    return { caller, cookie };
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('guarda um hash e cria a sessão após o cadastro', async () => {
+    const { caller, cookie } = createCaller();
+    vi.spyOn(db, 'getUserByEmail').mockResolvedValue(null);
+    const create = vi.spyOn(db, 'createLocalUser').mockResolvedValue(account);
+    const password = 'Minha senha segura!';
+
+    await expect(caller.register({ email, name: account.name, password })).resolves.toMatchObject({
+      success: true, user: { email },
+    });
+    const savedHash = create.mock.calls[0][0].pinHash;
+    expect(savedHash).not.toBe(password);
+    expect(await bcrypt.compare(password, savedHash)).toBe(true);
+    expect(cookie).toHaveBeenCalledWith(expect.any(String), 'sessao-de-teste',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }));
+  });
+
+  it('permite que o PIN existente seja digitado no novo campo de senha', async () => {
+    const { caller } = createCaller();
+    vi.spyOn(db, 'getUserByEmail').mockResolvedValue({ ...account, pinHash: await bcrypt.hash('951268', 4) });
+    vi.spyOn(db, 'updateUserLastSignedIn').mockResolvedValue(undefined);
+    await expect(caller.login({ email, password: '951268' })).resolves.toMatchObject({ success: true });
   });
 });

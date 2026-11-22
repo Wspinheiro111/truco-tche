@@ -535,6 +535,12 @@ export async function listActiveOnlineGamePlayers(roomCode: string) {
   return db.select().from(activeOnlineGamePlayers).where(eq(activeOnlineGamePlayers.roomCode, roomCode)).orderBy(asc(activeOnlineGamePlayers.seat));
 }
 
+function localOpenIdForEmail(email: string) {
+  const normalizedEmail = email.toLowerCase();
+  const openId = `local:${normalizedEmail}`;
+  return openId.length <= 64 ? openId : `local:sha256:${createHash("sha256").update(normalizedEmail).digest("base64url")}`;
+}
+
 export async function createLocalUser(data: {
   name: string;
   email: string;
@@ -545,7 +551,7 @@ export async function createLocalUser(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-  const openId = `local:${data.email.toLowerCase()}`;
+  const openId = localOpenIdForEmail(data.email);
   const normalizedCity = data.city ? normalizeCityName(data.city) : null;
   await db.insert(users).values({
     openId,
@@ -559,17 +565,6 @@ export async function createLocalUser(data: {
     // lastSignedIn left null — will be set on first real login
   });
   return getUserByEmail(data.email.toLowerCase());
-}
-
-export async function updateUserPin(userId: number, pinHash: string) {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
-  await db.update(users).set({
-    pinHash,
-    updatedAt: new Date(),
-    failedLoginAttempts: 0,
-    lockedUntil: null,
-  }).where(eq(users.id, userId));
 }
 
 export async function updateUserLastSignedIn(userId: number) {
@@ -615,7 +610,7 @@ export async function unlinkGoogleAccount(userId: number): Promise<void> {
   if (!user || !user.email) throw new Error('User not found or has no email');
 
   // Restore local: openId format
-  const localOpenId = `local:${user.email.toLowerCase()}`;
+  const localOpenId = localOpenIdForEmail(user.email);
   await db.update(users).set({
     openId: localOpenId,
     loginMethod: 'local',
@@ -706,20 +701,29 @@ export async function getPinResetToken(token: string) {
   return result.length > 0 ? result[0] : null;
 }
 
-/**
- * Marks a token as used after successful PIN reset.
- */
-export async function consumePinResetToken(token: string): Promise<boolean> {
+export async function resetLocalCredential(userId: number, token: string, pinHash: string) {
   const db = await getDb();
-  if (!db) return false;
-  const [result] = await db.update(pinResetTokens)
-    .set({ used: true })
-    .where(and(
-      eq(pinResetTokens.token, token),
-      eq(pinResetTokens.used, false),
-      gt(pinResetTokens.expiresAt, new Date()),
-    ));
-  return result.affectedRows === 1;
+  if (!db) throw new Error('Database not available');
+
+  return db.transaction(async tx => {
+    const [claimed] = await tx.update(pinResetTokens)
+      .set({ used: true })
+      .where(and(
+        eq(pinResetTokens.userId, userId),
+        eq(pinResetTokens.token, token),
+        eq(pinResetTokens.used, false),
+        gt(pinResetTokens.expiresAt, new Date()),
+      ));
+    if (claimed.affectedRows !== 1) return false;
+
+    await tx.update(users).set({
+      pinHash,
+      updatedAt: new Date(),
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    }).where(eq(users.id, userId));
+    return true;
+  });
 }
 
 // ─── Match History ────────────────────────────────────────────────────────────

@@ -1,12 +1,3 @@
-/**
- * Local authentication router (email + 6-digit PIN)
- * 
- * Improvements applied:
- * - Sugestão 1: PIN reset token sent via email (not returned in response body)
- * - Sugestão 2: Rate limiting — account locked after 5 failed login attempts (15 min)
- * - Sugestão 3: Reset tokens persisted in database (not in-memory Map)
- * - Sugestão 9: City name normalized on registration
- */
 import { TRPCError } from '@trpc/server';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
@@ -16,10 +7,16 @@ import { getSessionCookieOptions } from './_core/cookies';
 import { publicProcedure, protectedProcedure, router } from './_core/trpc';
 import { sdk } from './_core/sdk';
 import * as db from './db';
-import { sendPinResetEmail } from './email';
+import { sendPasswordResetEmail } from './email';
 
 const PIN_REGEX = /^\d{6}$/;
-const RESET_APP_ORIGIN = process.env.PUBLIC_APP_URL || 'https://trucotche-cut9vr7p.manus.space';
+const RESET_APP_ORIGIN = process.env.PUBLIC_APP_URL || 'https://novotrucotche.manus.space';
+const emailSchema = z.string().trim().max(320).email('Informe um e-mail válido');
+const pinSchema = z.string().regex(PIN_REGEX, 'Informe um PIN de 6 dígitos');
+const passwordInput = z.string().min(1, 'Informe a senha ou o PIN').max(72)
+  .refine(value => !bcrypt.truncates(value), 'A senha deve ter até 72 bytes');
+const newPassword = passwordInput.refine(value => value.length >= 8 && value.trim().length > 0,
+  'Crie uma senha com pelo menos 8 caracteres');
 
 type LocalProfileMatch = {
   id: number;
@@ -107,21 +104,14 @@ function generateResetToken(): string {
 }
 
 export const localAuthRouter = router({
-  /**
-   * Register a new player with email + 6-digit PIN
-   * Sugestão 9: city is normalized before storage
-   */
   register: publicProcedure
-    .input(
-      z.object({
-        name: z.string().min(2).max(100),
-        email: z.string().email(),
-        phone: z.string().max(20).optional(),
-        state: z.string().length(2).optional(),
-        city: z.string().max(100).optional(),
-        pin: z.string().regex(PIN_REGEX, 'PIN deve ter exatamente 6 dígitos numéricos'),
-      })
-    )
+    .input(z.object({
+      name: z.string().trim().min(2).max(100),
+      email: emailSchema,
+      phone: z.string().max(20).optional(),
+      state: z.string().length(2).optional(),
+      city: z.string().max(100).optional(),
+    }).and(z.union([z.object({ password: newPassword }), z.object({ pin: pinSchema })])))
     .mutation(async ({ input, ctx }) => {
       const email = input.email.toLowerCase();
 
@@ -130,14 +120,11 @@ export const localAuthRouter = router({
       if (existing) {
         throw new TRPCError({
           code: 'CONFLICT',
-          message: 'Este e-mail já está cadastrado. Faça login ou use "Esqueci meu PIN".',
+          message: 'Este e-mail já está cadastrado. Entre ou recupere seu acesso.',
         });
       }
 
-      // Hash the PIN
-      const pinHash = await bcrypt.hash(input.pin, 10);
-
-      // Create user (city is normalized inside createLocalUser via normalizeCityName)
+      const pinHash = await bcrypt.hash('password' in input ? input.password : input.pin, 10);
       const user = await db.createLocalUser({
         name: input.name,
         email,
@@ -145,6 +132,11 @@ export const localAuthRouter = router({
         state: input.state,
         city: input.city,
         pinHash,
+      }).catch(error => {
+        if ((error.cause ?? error).code === 'ER_DUP_ENTRY') {
+          throw new TRPCError({ code: 'CONFLICT', message: 'Este e-mail já está cadastrado. Entre ou recupere seu acesso.' });
+        }
+        throw error;
       });
 
       if (!user) {
@@ -173,17 +165,10 @@ export const localAuthRouter = router({
       };
     }),
 
-  /**
-   * Login with email + 6-digit PIN
-   * Sugestão 2: Locks account for 15 min after 5 consecutive failed attempts
-   */
   login: publicProcedure
-    .input(
-      z.object({
-        email: z.string().email(),
-        pin: z.string().regex(PIN_REGEX, 'PIN deve ter exatamente 6 dígitos'),
-      })
-    )
+    .input(z.object({ email: emailSchema }).and(
+      z.union([z.object({ password: passwordInput }), z.object({ pin: pinSchema })])
+    ))
     .mutation(async ({ input, ctx }) => {
       const email = input.email.toLowerCase();
       const user = await db.getUserByEmail(email);
@@ -192,7 +177,7 @@ export const localAuthRouter = router({
         // Return generic message to avoid user enumeration
         throw new TRPCError({
           code: 'UNAUTHORIZED',
-          message: 'E-mail ou PIN incorretos.',
+          message: 'E-mail, senha ou PIN incorretos.',
         });
       }
 
@@ -206,7 +191,7 @@ export const localAuthRouter = router({
         });
       }
 
-      const valid = await bcrypt.compare(input.pin, user.pinHash);
+      const valid = await bcrypt.compare('password' in input ? input.password : input.pin, user.pinHash);
       if (!valid) {
         // Sugestão 2: Record failed attempt
         const result = await db.recordFailedLogin(user.id);
@@ -217,7 +202,7 @@ export const localAuthRouter = router({
 
         throw new TRPCError({
           code: 'UNAUTHORIZED',
-          message: `E-mail ou PIN incorretos.${lockMsg}`,
+          message: `E-mail, senha ou PIN incorretos.${lockMsg}`,
         });
       }
 
@@ -253,14 +238,14 @@ export const localAuthRouter = router({
    */
   forgotPin: publicProcedure
     .input(z.object({
-      email: z.string().email(),
+      email: emailSchema,
     }))
     .mutation(async ({ input }) => {
       const email = input.email.toLowerCase();
       const user = await db.getUserByEmail(email);
 
       // Always return success to avoid user enumeration
-      if (!user || user.loginMethod !== 'local') {
+      if (!user?.pinHash) {
         return {
           success: true,
           message: 'Se o e-mail estiver cadastrado, você receberá as instruções em breve.',
@@ -272,7 +257,7 @@ export const localAuthRouter = router({
       await db.createPinResetToken(user.id, token);
 
       // Sugestão 1: Send token via email (not in response body)
-      const emailSent = await sendPinResetEmail(
+      const emailSent = await sendPasswordResetEmail(
         user.email!,
         user.name ?? 'Jogador',
         token,
@@ -280,48 +265,30 @@ export const localAuthRouter = router({
       );
 
       if (!emailSent) {
-        console.error(`[Auth] Failed to send PIN reset email to ${email}`);
+        console.error('[Auth] Não foi possível enviar o e-mail de recuperação.');
       }
 
       return {
         success: true,
         message: 'Se o e-mail estiver cadastrado, você receberá as instruções em breve.',
         // Token is NOT returned here — only sent via email
-        // In development mode without SMTP, check server console logs
       };
     }),
 
-  /**
-   * Reset PIN using token received via email
-   * Sugestão 3: Validates token from database (not in-memory Map)
-   */
   resetPin: publicProcedure
-    .input(
-      z.object({
-        resetToken: z.string(),
-        newPin: z.string().regex(PIN_REGEX, 'PIN deve ter exatamente 6 dígitos numéricos'),
-      })
-    )
+    .input(z.object({ resetToken: z.string().regex(/^[a-f0-9]{64}$/) }).and(
+      z.union([z.object({ newPassword }), z.object({ newPin: pinSchema })])
+    ))
     .mutation(async ({ input, ctx }) => {
-      // Sugestão 3: Look up token in database
       const entry = await db.getPinResetToken(input.resetToken);
+      const invalidToken = () => new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'Link inválido ou expirado. Solicite um novo.',
+      });
+      if (!entry) throw invalidToken();
 
-      if (!entry) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Token inválido ou expirado. Solicite um novo.',
-        });
-      }
-
-      const pinHash = await bcrypt.hash(input.newPin, 10);
-      const consumed = await db.consumePinResetToken(input.resetToken);
-      if (!consumed) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: 'Token inválido ou expirado. Solicite um novo.',
-        });
-      }
-      await db.updateUserPin(entry.userId, pinHash);
+      const pinHash = await bcrypt.hash('newPassword' in input ? input.newPassword : input.newPin, 10);
+      if (!await db.resetLocalCredential(entry.userId, input.resetToken, pinHash)) throw invalidToken();
 
       const user = await db.getUserById(entry.userId);
       if (!user) {
