@@ -1828,3 +1828,36 @@ body, .scr {
 .ai-bk.fly {
   animation: cardFly .45s ease;
 }
+
+.ai-entry.mc.feat {
+  background: linear-gradient(145deg, #4f3523, #2a1b12);
+  color: var(--tg-cream);
+}
+
+.ai-rivals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  align-content: start;
+  gap: .75rem;
+  padding: 1rem;
+  width: min(100%, 680px);
+  margin: 0 auto;
+  overflow-y: auto;
+}
+
+.ai-rivals .cc {
+  width: 100%;
+  min-height: 120px;
+  font-family: inherit;
+  color: var(--tg-cream);
+}
+
+.ai-entry:focus-visible,
+.ai-rivals .cc:focus-visible {
+  outline: 2px solid var(--tg-gold-light);
+  outline-offset: 3px;
+}
+
+.online-truco-sheet {
+  text-align: center;
+}

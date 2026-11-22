@@ -11,7 +11,7 @@ import {
   callFlor, acceptFlor, refuseFlor, fold, getPlayerView,
   GameState, Player, TRUCO_POINTS, TURN_TIMEOUT_MS as ENGINE_TURN_TIMEOUT_MS,
 } from "../shared/gameEngine";
-import { acceptTeamEnvido, acceptTeamFlor, acceptTeamTruco, callTeamEnvido, callTeamFlor, callTeamTruco, createTeamGameState, dealTeamHand, getTeamPlayerView, playTeamCard, refuseTeamEnvido, refuseTeamFlor, refuseTeamTruco, type Team, type TeamGameState, type TeamMode, type TeamPlayer } from "../shared/teamGameEngine";
+import { acceptTeamEnvido, acceptTeamFlor, acceptTeamTruco, callTeamEnvido, callTeamFlor, callTeamTruco, createTeamGameState, dealTeamHand, getTeamPlayerView, playTeamCard, raiseTeamTruco, refuseTeamEnvido, refuseTeamFlor, refuseTeamTruco, type Team, type TeamGameState, type TeamMode, type TeamPlayer } from "../shared/teamGameEngine";
 import { areFriends, claimFriendGameInvite, claimInPersonTableSeat, confirmInPersonTableGuest, createActiveOnlineGame, createFriendGameInvite, createInPersonInviteToken, createInPersonTable, createUserNotification, getActiveOnlineGameByRoom, getActiveOnlineGameForUser, getDb, listActiveOnlineGamePlayers, listInPersonTablePlayers, saveActiveOnlineGamePlayers, updateActiveOnlineGame, validateInPersonTableInvite } from "./db";
 import { onlineRooms, onlineMatches, onlineTournaments, onlineTournamentPlayers, users } from "../drizzle/schema";
 import { eq, and, or, desc, sql } from "drizzle-orm";
@@ -1024,7 +1024,8 @@ export function initSocketServer(httpServer: HttpServer): Server {
       try {
         let result: { state: TeamGameState; handWinner?: Team; gameWinner?: Team; envidoWinner?: Team; florWinner?: Team; points?: number } | null = null;
         switch (data.type) {
-          case "call_truco": room.state = callTeamTruco(room.state, player); emitTeamToPlayer(io, room, room.state.turn, "truco_called", { level: room.state.trucoLevel, callerName: room.participants.get(player)?.userName }); break;
+          case "call_truco": room.state = callTeamTruco(room.state, player); break;
+          case "raise_truco": room.state = raiseTeamTruco(room.state, player); break;
           case "accept_truco": room.state = acceptTeamTruco(room.state, player); io.to(room.code).emit("truco_accepted", { level: room.state.trucoLevel }); break;
           case "refuse_truco": result = refuseTeamTruco(room.state, player); room.state = result.state; io.to(room.code).emit("truco_refused", { winnerName: `Equipe ${result.handWinner}` }); break;
           case "call_envido": room.state = callTeamEnvido(room.state, player, data.action || "envido"); emitTeamToPlayer(io, room, room.state.turn, "envido_called", { action: data.action, bet: room.state.envidoBet, callerName: room.participants.get(player)?.userName }); break;
@@ -1037,6 +1038,12 @@ export function initSocketServer(httpServer: HttpServer): Server {
         }
         if (!await persistTeamRoomState(room, `team_action:${data.type}`)) return cb?.({ error: "Estado atualizado por outra instância. Tente novamente." });
         emitTeamGameState(io, room);
+        if (data.type === "call_truco" || data.type === "raise_truco") {
+          emitTeamToPlayer(io, room, room.state.turn, "truco_called", {
+            level: room.state.trucoLevel,
+            callerName: room.participants.get(player)?.userName,
+          });
+        }
         if (result?.gameWinner) await endTeamGame(room, result.gameWinner);
         else if (result?.handWinner) setTimeout(() => { void dealNextTeamHand(room, `next_hand:${data.type}`); }, 1500);
         cb?.({ ok: true });
@@ -1849,6 +1856,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         myRole: role,
         myName: room.nameMap[role],
         opponentName: room.nameMap[opponentRole],
+        ...computeCanActions(room.state, role),
         roomCode: resolvedRoomCode,
         turnTimeoutMs: TURN_TIMEOUT_MS,
         turnTimeLeftMs,
@@ -1901,6 +1909,7 @@ export function initSocketServer(httpServer: HttpServer): Server {
         myRole: role,
         myName: room.nameMap[role],
         opponentName: room.nameMap[opponentRole],
+        ...computeCanActions(room.state, role),
         roomCode: snapshot.roomCode,
         turnTimeoutMs: TURN_TIMEOUT_MS,
         turnTimeLeftMs: Math.max(0, (room.state.turnStartedAt + room.state.turnTimeoutMs) - Date.now()),

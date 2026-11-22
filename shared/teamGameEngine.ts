@@ -42,6 +42,7 @@ export interface TeamGameState {
   roundWins: TeamRoundResult[];
   trucoLevel: number;
   trucoCaller: TeamPlayer | null;
+  trucoResumeTurn?: TeamPlayer;
   lastTrucoCaller: TeamPlayer | null;
   envidoChain: string[];
   envidoBet: number;
@@ -208,15 +209,34 @@ function scoreTeam(state: TeamGameState, team: Team, points: number, patch: Part
   return { state: { ...state, ...patch, score, phase, winner: gameWinner ?? null, turnStartedAt: Date.now() }, gameWinner };
 }
 
+function requestTeamTruco(state: TeamGameState, caller: TeamPlayer): TeamGameState {
+  if (state.trucoLevel >= 4 || (state.lastTrucoCaller && state.teams[state.lastTrucoCaller] === state.teams[caller])) {
+    throw new Error("Invalid truco raise");
+  }
+  return {
+    ...state,
+    phase: "truco_neg",
+    trucoLevel: state.trucoLevel + 1,
+    trucoCaller: caller,
+    lastTrucoCaller: caller,
+    turn: firstOpponent(state, caller),
+    turnStartedAt: Date.now(),
+  };
+}
+
 export function callTeamTruco(state: TeamGameState, caller: TeamPlayer): TeamGameState {
   assertCallTurn(state, caller);
-  if (state.trucoLevel >= 4 || state.lastTrucoCaller && state.teams[state.lastTrucoCaller] === state.teams[caller]) throw new Error("Invalid truco raise");
-  return { ...state, phase: "truco_neg", trucoLevel: state.trucoLevel + 1, trucoCaller: caller, lastTrucoCaller: caller, turn: firstOpponent(state, caller), turnStartedAt: Date.now() };
+  return requestTeamTruco({ ...state, trucoResumeTurn: state.turn }, caller);
+}
+
+export function raiseTeamTruco(state: TeamGameState, responder: TeamPlayer): TeamGameState {
+  if (state.phase !== "truco_neg" || state.turn !== responder) throw new Error("No truco to raise on this turn");
+  return requestTeamTruco(state, responder);
 }
 
 export function acceptTeamTruco(state: TeamGameState, responder: TeamPlayer): TeamGameState {
   if (state.phase !== "truco_neg" || !state.trucoCaller || state.teams[responder] === state.teams[state.trucoCaller]) throw new Error("No opposing truco to accept");
-  return { ...state, phase: "playing", turn: state.trucoCaller, turnStartedAt: Date.now() };
+  return { ...state, phase: "playing", turn: state.trucoResumeTurn ?? state.trucoCaller, turnStartedAt: Date.now() };
 }
 
 export function refuseTeamTruco(state: TeamGameState, responder: TeamPlayer) {

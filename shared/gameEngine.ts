@@ -35,6 +35,7 @@ export interface GameState {
   roundWins: RoundResult[];
   trucoLevel: number;    // 1=normal, 2=truco, 3=retruco, 4=vale4
   trucoCaller: Player | null;
+  trucoResumeTurn?: Player;
   lastTrucoCaller: Player | null;
   envidoChain: string[];
   envidoBet: number;
@@ -455,6 +456,7 @@ export function callTruco(state: GameState, caller: Player): GameState {
     phase: 'truco_neg',
     trucoLevel: level,
     trucoCaller: caller,
+    trucoResumeTurn: state.turn,
     lastTrucoCaller: caller,
     turn: caller === 'p1' ? 'p2' : 'p1',
     turnStartedAt: Date.now(),
@@ -471,7 +473,7 @@ export function acceptTruco(state: GameState, responder?: Player): GameState {
   return {
     ...state,
     phase: 'playing',
-    turn: state.trucoCaller,
+    turn: state.trucoResumeTurn ?? state.trucoCaller,
     turnStartedAt: Date.now(),
   };
 }
@@ -500,7 +502,7 @@ export function refuseTruco(
   }
 
   return {
-    state: { ...state, score: newScore, turnStartedAt: Date.now() },
+    state: { ...state, score: newScore, phase: 'between_hands', turnStartedAt: Date.now() },
     handWinner: winner,
   };
 }
