@@ -7192,7 +7192,6 @@ function normalizeTeamStateForTable(state) {
     score: { p1: state.score?.[myTeam] || 0, p2: state.score?.[opponentTeam] || 0 },
     myRole: 'p1',
     currentPlayer: isMyTurn ? 'p1' : 'p2',
-    handMano: state.teams?.[state.handMano] === myTeam ? 'p1' : 'p2',
     myName: `Equipe ${myTeam}`,
     opponentName: `Equipe ${opponentTeam}`,
     roundWins: (state.roundWins || []).map(result => result === myTeam ? 'p1' : result === opponentTeam ? 'p2' : result),
@@ -7208,7 +7207,7 @@ function renderOnlineGame(state) {
   if (teamState) state = normalizeTeamStateForTable(state);
   // ── Computed flags (must be first) ──
   const isMyTurn = state.currentPlayer === state.myRole && state.phase === 'playing';
-  const iAmMao = state.handMano === state.myRole;
+  const iAmMao = teamState ? teamState.handMano === teamState.myRole : state.handMano === state.myRole;
   // ── Scores ──
   const myScoreEl = document.getElementById('og-score-me');
   const oppScoreEl = document.getElementById('og-score-opp');
