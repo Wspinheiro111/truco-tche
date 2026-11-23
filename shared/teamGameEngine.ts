@@ -40,6 +40,7 @@ export interface TeamGameState {
   hands: Record<TeamPlayer, Card[]>;
   table: TeamTableEntry[];
   roundWins: TeamRoundResult[];
+  lastTrick?: { cards: TeamTableEntry[]; result: TeamRoundResult; winningPlayer: TeamPlayer | null };
   trucoLevel: number;
   trucoCaller: TeamPlayer | null;
   trucoResumeTurn?: TeamPlayer;
@@ -182,18 +183,19 @@ export function playTeamCard(state: TeamGameState, player: TeamPlayer, cardId: s
 
   const resolved = resolveTeamRound(table);
   const roundWins = [...state.roundWins, resolved.result];
+  const lastTrick = { cards: table, ...resolved };
   const handWinner = determineTeamHandWinner(roundWins, teamOfHandMano(state));
   if (handWinner) {
     const score = { ...state.score, [handWinner]: state.score[handWinner] + TRUCO_POINTS[state.trucoLevel] };
     const gameWinner = score[handWinner] >= state.target ? handWinner : undefined;
     return {
-      state: { ...next, score, roundWins, phase: gameWinner ? "game_over" : "between_hands", winner: gameWinner ?? null },
+      state: { ...next, score, roundWins, lastTrick, phase: gameWinner ? "game_over" : "between_hands", winner: gameWinner ?? null },
       completedTrick: table, roundResult: resolved.result, handWinner, gameWinner,
     };
   }
   const leader = resolved.winningPlayer ?? state.handMano;
   return {
-    state: { ...next, table: [], roundWins, turn: leader, playedFirst: emptyRecord(state.playerOrder, false) },
+    state: { ...next, table: [], roundWins, lastTrick, turn: leader, playedFirst: emptyRecord(state.playerOrder, false) },
     completedTrick: table, roundResult: resolved.result,
   };
 }

@@ -66,10 +66,18 @@ def run_table(browser, count, contexts, errors):
 
     for seat, page in enumerate(pages, 1):
         expect(page.locator("#og-my-hand .hc:visible")).to_have_count(3, timeout=TIMEOUT)
-        page.wait_for_function("document.querySelector('#og-opp-hand img')?.naturalWidth > 0")
+        page.wait_for_function("Array.from(document.querySelectorAll('#og-team-seats .og-seat-card img')).some(img => img.naturalWidth > 0)")
         state = page.evaluate(VIEW)
         assert state and state["room"] == room and state["role"] == f"p{seat}"
         assert state["team"] == ("A" if seat % 2 else "B")
+        expect(page.locator("#home-active-rooms")).to_be_hidden()
+        expect(page.locator("#og-team-seats .og-seat:visible")).to_have_count(count)
+        expect(page.locator(f"[data-seat='p{seat}'] .og-seat-label")).to_contain_text("Você")
+        expect(page.locator("#og-team-seats .og-seat[aria-current=true]")).to_have_attribute("data-seat", "p1")
+        expect(page.locator("#og-my-hand .card-caption:visible")).to_have_count(3)
+        for locator in ("#og-team-board", "#og-my-hand"):
+            assert page.locator(locator).evaluate("el => el.getBoundingClientRect().right <= innerWidth + 1 && el.getBoundingClientRect().left >= 0")
+
     print(f"{mode} — todos entraram por convite e receberam três cartas", flush=True)
 
     # Recuperação com uma carta já jogada e sem outro participante atuando.
@@ -85,9 +93,11 @@ def run_table(browser, count, contexts, errors):
         raise AssertionError(f"p{count} não recuperou o estado de equipe em {TIMEOUT // 1000}s") from error
     assert last.evaluate(VIEW) == before, f"{mode}: estado diferente após recarregar p{count}"
     expect(last.locator("#online-game")).to_be_visible()
-    expect(last.locator("#og-table-opp .tc")).to_have_count(1, timeout=TIMEOUT)
+    expect(last.locator("#og-team-seats [data-seat=p1] .card-caption")).to_be_visible(timeout=TIMEOUT)
+    expect(last.locator("#og-team-seats .og-seat[aria-current=true]")).to_have_attribute("data-seat", "p2")
     print(f"{mode} — assento p{count} recuperou mão, turno, placar e carta na mesa", flush=True)
 
+    first_trick_checked = False
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
         state = host.evaluate(VIEW)
@@ -106,10 +116,17 @@ def run_table(browser, count, contexts, errors):
             host.wait_for_function("sioGameState.phase === 'playing' && sioGameState.trucoLevel === 2")
         actor.locator("#og-my-hand .hc:not(.dis)").first.click()
         host.wait_for_function("prior => sioGameState.phase !== 'playing' || JSON.stringify(sioGameState.table.map(t => t.card.id)) !== JSON.stringify(prior)", arg=state["cards"])
+        if not first_trick_checked and host.evaluate(VIEW)["rounds"]:
+            expect(host.locator("#og-team-seats .og-seat-card.tc:visible")).to_have_count(count)
+            expect(host.locator("#og-team-result")).to_contain_text("última vaza")
+            winning_cards = 0 if host.evaluate(VIEW)["rounds"][-1] == "draw" else 1
+            expect(host.locator("#og-team-seats .og-winning-card")).to_have_count(winning_cards)
+            first_trick_checked = True
     else:
         raise AssertionError(f"{mode}: tempo esgotado antes de 24 pontos")
 
     final = host.evaluate(VIEW)
+    assert first_trick_checked, "A primeira vaza deve aparecer nos assentos"
     assert final["phase"] == "game_over" and max(final["score"].values()) == 24
     winner = max(final["score"], key=final["score"].get)
     for page in pages:

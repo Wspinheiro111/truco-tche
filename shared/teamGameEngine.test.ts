@@ -20,6 +20,8 @@ describe("team game engine", () => {
     const player = state.turn;
     const result = playTeamCard(state, player, state.hands[player][0].id);
     expect(result.completedTrick).toHaveLength(6);
+    expect(result.state.lastTrick).toMatchObject({ cards: result.completedTrick, result: result.roundResult });
+    expect(dealTeamHand(result.state).lastTrick).toEqual(result.state.lastTrick);
   });
 
   it.each(["2v2", "3v3"] as const)("retoma a mesma vaza após Vale Quatro em %s", mode => {
