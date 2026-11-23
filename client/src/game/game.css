@@ -1861,3 +1861,156 @@ body, .scr {
 .online-truco-sheet {
   text-align: center;
 }
+
+.readable-card {
+  position: relative;
+  background: #f6eddb;
+}
+
+.card-caption {
+  position: absolute;
+  inset: auto 0 0;
+  padding: .18rem .1rem;
+  background: #fff6e3;
+  color: #25160c;
+  text-align: center;
+  font: 750 clamp(.57rem, 2.5vw, .78rem)/1.15 system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#p-hand .hc:not(.dis),
+#og-my-hand .hc:not(.dis) {
+  border-color: #f2d479;
+  box-shadow: 0 0 0 2px #f2d47955, 0 4px 12px #0008;
+}
+
+#p-hand .hc.dis,
+#og-my-hand .hc.dis {
+  filter: none;
+}
+
+.hc.dis img {
+  filter: brightness(.7);
+}
+
+#online-game.team-mode {
+  overflow-y: auto;
+}
+
+.team-mode :is(.og-opp-strip, .og-mesa-inner, .og-hdr-avatar, .og-mao-icon) {
+  display: none;
+}
+
+.team-mode .og-hdr-name {
+  max-width: 100%;
+}
+
+.team-mode #og-phase {
+  max-width: clamp(8rem, 43vw, 18rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-mode .og-mesa-wrap {
+  min-height: max-content;
+  align-items: center;
+}
+
+.team-mode .og-mesa {
+  width: min(100%, 620px);
+  height: auto;
+  padding: clamp(.45rem, 2vw, .9rem);
+  border-radius: 20px;
+}
+
+.og-team-board {
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.og-team-seats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(.3rem, 1.5vw, .75rem);
+}
+
+.og-team-seats[data-team-size="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.og-seat {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  min-width: 0;
+  gap: .2rem;
+  padding: .3rem .2rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: #102417;
+  color: #fff3dc;
+}
+
+.og-seat[data-team="B"] {
+  background: #262019;
+}
+
+.og-seat.is-current {
+  border-color: #f2d479;
+  box-shadow: 0 0 0 1px #1b1209, 0 0 12px #f2d47944;
+}
+
+.og-seat-label {
+  color: #aee2c0;
+  font-size: .69rem;
+}
+
+.og-seat[data-team="B"] .og-seat-label {
+  color: #ffd29a;
+}
+
+.og-seat-name {
+  width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .78rem;
+}
+
+.og-seat-card {
+  width: clamp(36px, 11vw, 52px);
+  height: clamp(51px, 15vw, 72px);
+  overflow: hidden;
+  border: 1px solid #e6cc9c50;
+  border-radius: 5px;
+}
+
+.og-seat-card img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.og-seat-card.tc {
+  animation: none;
+}
+
+.og-team-summary {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .15rem .5rem;
+  margin-top: .45rem;
+  color: #fff0c5;
+  font: 650 .72rem/1.35 system-ui, sans-serif;
+}
+
+.og-seat-card.og-winning-card {
+  outline: 2px solid #aee2c0;
+  outline-offset: 1px;
+}

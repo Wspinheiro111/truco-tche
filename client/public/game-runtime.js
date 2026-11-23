@@ -1202,13 +1202,30 @@ function renderAICards(){
     d.appendChild(img);row.appendChild(d);
   }
 }
+function renderReadableCard(element, card, compact = false) {
+  element.classList.add('readable-card');
+  const src = cimg(card);
+  if (src) {
+    const art = document.createElement('img');
+    art.src = src;
+    art.alt = '';
+    element.appendChild(art);
+  }
+  const caption = document.createElement('span');
+  caption.className = 'card-caption';
+  caption.textContent = `${card.rank === 1 ? 'A' : card.rank} ${compact ? (SUIT_SYMBOLS[card.suit] || card.suit) : card.suit}`;
+  caption.setAttribute('aria-hidden', 'true');
+  element.appendChild(caption);
+  if (!element.hasAttribute('aria-label')) element.setAttribute('aria-label', `${card.rank === 1 ? 'Ás' : card.rank} de ${card.suit}`);
+}
+
 function renderTable(){
   const at=document.getElementById('ai-tbl'), ht=document.getElementById('hu-tbl');
   at.innerHTML='';ht.innerHTML='';
   TT_G.table.forEach(({card,player})=>{
     const d=document.createElement('div');d.className='tc';
-    const img=document.createElement('img');img.src=cimg(card);img.alt='';
-    d.appendChild(img);(player==='ai'?at:ht).appendChild(d);
+    renderReadableCard(d, card, true);
+    (player==='ai'?at:ht).appendChild(d);
   });
 }
 function renderHand(){
@@ -1221,8 +1238,7 @@ function renderHand(){
     d.title=`${card.rank} de ${card.suit}${valTxt}`;
     d.setAttribute('aria-label',`${card.rank} de ${card.suit}${isMan(card.rank,card.suit)?' (manilha)':''}${valTxt}`);
     d.setAttribute('role','button'); 
-    const img=document.createElement('img');img.src=cimg(card);img.alt='';
-    d.appendChild(img);
+    renderReadableCard(d, card);
     if(can)d.onclick=()=>humanPlay(idx);
     hand.appendChild(d);
   });
@@ -5194,7 +5210,7 @@ function ensureSocket() {
     const msg = data.result === 'draw' ? 'Empate na rodada!' :
       data.result === myResult ? 'Sua equipe venceu a rodada!' : 'A outra equipe venceu a rodada!';
     toast(msg, data.result === myResult ? 'win' : data.result === 'draw' ? 'info' : 'lose');
-    showOnlineResolvedTrick(data);
+    if (!data.teamGame) showOnlineResolvedTrick(data);
   });
 
   sio.on('hand_winner', (data) => {
@@ -7102,41 +7118,96 @@ function emitOnlineModalAction(type, payload) {
   else sio.emit(type, payload || {});
 }
 
+function renderTeamSeats(state) {
+  const board = document.getElementById('og-team-board');
+  const game = document.getElementById('online-game');
+  board.hidden = !state;
+  game.classList.toggle('team-mode', Boolean(state));
+  if (!state) {
+    delete board.dataset.rendered;
+    return;
+  }
+
+  const seats = document.getElementById('og-team-seats');
+  const resultLabel = document.getElementById('og-team-result');
+  const vira = document.getElementById('og-team-vira');
+  const activeSeat = ['playing', 'truco_neg', 'envido_neg', 'flor_neg'].includes(state.phase) ? state.turn : null;
+  const latestResult = state.lastTrick?.result ?? state.roundWins?.at(-1);
+  const showLastTrick = state.roundWins.length > 0 && (!state.table.length || ['between_hands', 'game_over'].includes(state.phase));
+  const played = state.table.length ? state.table : (showLastTrick ? state.lastTrick?.cards || [] : []);
+  const cards = new Map(played.map(entry => [entry.player, entry.card]));
+  const participants = [...state.participants].sort((a, b) => a.seat - b.seat);
+  const winner = participants.find(player => player.role === state.lastTrick?.winningPlayer);
+  const boardKey = JSON.stringify([state.roomCode, state.myRole, activeSeat, played, state.cardCounts, participants, state.vira, latestResult, winner?.role, showLastTrick]);
+  if (board.dataset.rendered === boardKey) return;
+  board.dataset.rendered = boardKey;
+  vira.textContent = state.vira ? `Vira: ${state.vira.rank === 1 ? 'A' : state.vira.rank} ${state.vira.suit}` : '';
+
+  seats.dataset.teamSize = String(state.teamSize);
+  seats.replaceChildren(...participants.map(player => {
+    const seat = document.createElement('article');
+    seat.className = 'og-seat';
+    seat.dataset.seat = player.role;
+    seat.dataset.team = player.team;
+    seat.classList.toggle('is-current', player.role === activeSeat);
+    if (player.role === activeSeat) seat.setAttribute('aria-current', 'true');
+
+    const label = document.createElement('div');
+    label.className = 'og-seat-label';
+    label.textContent = `Equipe ${player.team} · ${player.role === state.myRole ? 'Você' : 'Lugar ' + player.seat}`;
+    const name = document.createElement('strong');
+    name.className = 'og-seat-name';
+    name.textContent = player.userName;
+    name.title = player.userName;
+    if (player.role === activeSeat) name.setAttribute('aria-label', player.userName + ', na vez');
+    const slot = document.createElement('div');
+    slot.className = 'og-seat-card';
+    const card = cards.get(player.role);
+    if (card) {
+      slot.classList.add('tc');
+      slot.classList.toggle('og-winning-card', showLastTrick && player.role === winner?.role);
+      renderReadableCard(slot, card, true);
+    } else if (player.role !== state.myRole && state.cardCounts[player.role] > 0) {
+      const back = document.createElement('img');
+      back.src = CARD_BACK;
+      back.alt = '';
+      slot.appendChild(back);
+    }
+    seat.append(label, name, slot);
+    return seat;
+  }));
+
+  const message = latestResult === 'draw' ? 'Última vaza empatada' :
+    latestResult ? `Equipe ${latestResult} ganhou a última vaza${winner ? ` com ${winner.userName}` : ''}` : '';
+  if (resultLabel.textContent !== message) resultLabel.textContent = message;
+}
+
 function normalizeTeamStateForTable(state) {
   const myTeam = state.team;
   const opponentTeam = myTeam === 'A' ? 'B' : 'A';
-  const participants = Array.isArray(state.participants) ? state.participants : [];
-  const opponentName = participants.filter(player => player.team === opponentTeam).map(player => player.userName).join(' · ') || `Equipe ${opponentTeam}`;
-  const teammateNames = participants.filter(player => player.team === myTeam && player.role !== state.myRole).map(player => player.userName);
   const hasTeamFlor = Object.entries(state.hasFlor || {}).some(([role, hasFlor]) => state.teams?.[role] === myTeam && hasFlor);
-  const table = (state.table || []).map(card => ({ ...card, player: state.teams?.[card.player] === myTeam ? 'p1' : 'p2' }));
-  const resolved = Array.isArray(window._ogResolvedTrick?.cards) ? { ...window._ogResolvedTrick, cards: window._ogResolvedTrick.cards.map(card => ({ ...card, player: state.teams?.[card.player] === myTeam ? 'p1' : 'p2' })) } : null;
-  if (resolved) window._ogResolvedTrick = resolved;
-  const opponentCardCount = participants.filter(player => player.team === opponentTeam).reduce((total, player) => total + Number(state.cardCounts?.[player.role] || 0), 0);
   const isMyTurn = state.turn === state.myRole && state.phase === 'playing';
   return {
     ...state,
     score: { p1: state.score?.[myTeam] || 0, p2: state.score?.[opponentTeam] || 0 },
     myRole: 'p1',
     currentPlayer: isMyTurn ? 'p1' : 'p2',
-    handMano: state.teams?.[state.handMano] === myTeam ? 'p1' : 'p2',
-    myName: teammateNames.length ? `Equipe ${myTeam} · ${state.myName}` : `Equipe ${myTeam} · ${state.myName}`,
-    opponentName: `Equipe ${opponentTeam} · ${opponentName}`,
-    table,
+    myName: `Equipe ${myTeam}`,
+    opponentName: `Equipe ${opponentTeam}`,
     roundWins: (state.roundWins || []).map(result => result === myTeam ? 'p1' : result === opponentTeam ? 'p2' : result),
-    opponentCardCount,
     canTruco: isMyTurn && state.trucoLevel < 4 && (!state.lastTrucoCaller || state.teams?.[state.lastTrucoCaller] !== myTeam),
     canEnvido: isMyTurn && !state.envidoResolved && !state.playedFirst?.[state.turn] && !hasTeamFlor,
     canFlor: isMyTurn && Boolean(state.hasFlor?.[state.turn]) && !state.envidoResolved,
-    teamOriginal: state,
   };
 }
 
 function renderOnlineGame(state) {
-  if (state?.isTeamGame) state = normalizeTeamStateForTable(state);
+  const teamState = state.isTeamGame ? state : null;
+  renderTeamSeats(teamState);
+  if (teamState) state = normalizeTeamStateForTable(state);
   // ── Computed flags (must be first) ──
   const isMyTurn = state.currentPlayer === state.myRole && state.phase === 'playing';
-  const iAmMao = state.handMano === state.myRole;
+  const iAmMao = teamState ? teamState.handMano === teamState.myRole : state.handMano === state.myRole;
   // ── Scores ──
   const myScoreEl = document.getElementById('og-score-me');
   const oppScoreEl = document.getElementById('og-score-opp');
@@ -7184,7 +7255,7 @@ function renderOnlineGame(state) {
       const totalMs = state.turnTimeoutMs;
       const remainingMs = Math.min(totalMs, Math.max(0, state.turnTimeLeftMs ?? totalMs));
       const startTime = Date.now() - (totalMs - remainingMs);
-      turnTimerBar.style.width = '100%';
+      turnTimerBar.style.width = (remainingMs / totalMs * 100) + '%';
       turnTimerBar.classList.remove('urgent');
       window._ogTurnTimerInterval = setInterval(() => {
         const elapsed = Date.now() - startTime;
@@ -7246,7 +7317,10 @@ function renderOnlineGame(state) {
   }
   // ── Phase indicator ──
   const phEl = document.getElementById('og-phase');
-  phEl.textContent = isMyTurn ? '▶ Sua vez' : state.phase === 'playing' ? '⏳ Adversário pensa...' : state.phase;
+  const currentSeat = teamState?.participants.find(player => player.role === teamState.turn);
+  phEl.textContent = isMyTurn ? '▶ Sua vez' : state.phase === 'playing'
+    ? (currentSeat ? `Vez de ${currentSeat.userName}` : '⏳ Adversário pensa...')
+    : ({ truco_neg: 'Pedido de Truco', envido_neg: 'Pedido de Envido', flor_neg: 'Pedido de Flor', between_hands: 'Próxima mão', game_over: 'Fim da partida' }[state.phase] || 'Aguardando');
   phEl.className = 'g-ph ' + (isMyTurn ? 'ph-play' : 'ph-wait');
   // ── Mano label ──
   const manoLabel = document.getElementById('og-mano-label');
@@ -7268,10 +7342,7 @@ function renderOnlineGame(state) {
         d.title = card.rank + ' de ' + card.suit;
         d.setAttribute('aria-label', card.rank + ' de ' + card.suit + (isManilha ? ' (manilha)' : ''));
         d.setAttribute('role', 'button');
-        const img = document.createElement('img');
-        img.src = cimg(card);
-        img.alt = '';
-        d.appendChild(img);
+        renderReadableCard(d, card);
         if (isMyTurn) {
           d.onclick = () => {
             // Lock UI: disable all cards until server ACK
@@ -7311,20 +7382,15 @@ function renderOnlineGame(state) {
   const tableOppEl = document.getElementById('og-table-opp');
   tableMeEl.innerHTML = '';
   tableOppEl.innerHTML = '';
-  const resolvedTrick = (!state.table || state.table.length === 0) ? window._ogResolvedTrick : null;
+  const resolvedTrick = !teamState && (!state.table || state.table.length === 0) ? window._ogResolvedTrick : null;
   const tableCards = state.table && state.table.length ? state.table : (resolvedTrick ? resolvedTrick.cards : []);
-  if (tableCards) {
+  if (!teamState && tableCards) {
     tableCards.forEach(tc => {
       const isMe = tc.player === state.myRole;
       const d = document.createElement('div');
       d.className = 'tc';
       if (resolvedTrick && resolvedTrick.result !== 'draw') d.classList.add(tc.player === resolvedTrick.result ? 'trick-winner' : 'trick-loser');
-      if (tc.card) {
-        const img = document.createElement('img');
-        img.src = cimg(tc.card);
-        img.alt = '';
-        d.appendChild(img);
-      }
+      if (tc.card) renderReadableCard(d, tc.card, true);
       (isMe ? tableMeEl : tableOppEl).appendChild(d);
     });
   }
